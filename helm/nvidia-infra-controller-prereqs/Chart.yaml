@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Red Hat, Inc. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: v2
+name: nvidia-infra-controller-prereqs
+description: >-
+  Prerequisite operators and ClusterIssuers for NVIDIA Infra Controller.
+  Installs cert-manager, Crunchy PostgreSQL, and RHBK operators via OLM,
+  then creates CA-based ClusterIssuers for mTLS and a Keycloak instance.
+type: application
+version: 0.1.0
+appVersion: "1.6.0"

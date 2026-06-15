@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Red Hat, Inc. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Add pg_isready init container and increase backoffLimit for Core migration.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nico-api-migrate
+spec:
+  backoffLimit: 30
+  template:
+    spec:
+      initContainers:
+        - name: wait-for-postgres
+          image: registry.redhat.io/rhel10/postgresql-18:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until pg_isready -h nico-site-core-pg-primary -p 5432 -U nico; do
+                echo "Waiting for PostgreSQL..."
+                sleep 5
+              done

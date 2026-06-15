@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Red Hat, Inc. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Add imagePullPolicy to the wait-for-postgres init container.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: placeholder
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: wait-for-postgres
+          imagePullPolicy: IfNotPresent

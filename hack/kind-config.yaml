@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Red Hat, Inc. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: ncp-nico-local
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      # NICo REST API (cloud)
+      - containerPort: 30388
+        hostPort: 9388
+        protocol: TCP
+      # Keycloak
+      - containerPort: 30082
+        hostPort: 9082
+        protocol: TCP
+      # Temporal UI (cloud)
+      - containerPort: 30233
+        hostPort: 9233
+        protocol: TCP
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"

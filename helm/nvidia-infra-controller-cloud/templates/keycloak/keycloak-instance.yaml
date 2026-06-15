@@ -1,0 +1,166 @@
+{{/*
+SPDX-FileCopyrightText: Copyright (c) 2026 Red Hat, Inc. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+
+Deploys a Keycloak instance with PostgreSQL (Crunchy PGO) and a
+pre-provisioned realm for NICo dev. Set keycloakInstance.enabled=false
+to use an external Keycloak instead.
+*/}}
+
+{{- if .Values.keycloakInstance.enabled }}
+{{- $ns := .Values.keycloakInstance.namespace }}
+{{- $kc := .Values.keycloakInstance }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $ns }}
+  labels:
+    {{- include "nvidia-infra-controller-cloud.labels" . | nindent 4 }}
+---
+apiVersion: postgres-operator.crunchydata.com/v1beta1
+kind: PostgresCluster
+metadata:
+  name: keycloak-pg
+  namespace: {{ $ns }}
+  labels:
+    app: keycloak
+spec:
+  postgresVersion: 16
+  instances:
+    - name: instance1
+      replicas: 1
+      dataVolumeClaimSpec:
+        accessModes:
+          - "ReadWriteOnce"
+        resources:
+          requests:
+            storage: {{ $kc.postgresql.storage.size | default "1Gi" }}
+  users:
+    - name: keycloak
+      databases:
+        - keycloak
+      options: "SUPERUSER"
+      password:
+        type: AlphaNumeric
+  backups:
+    pgbackrest:
+      repos:
+        - name: repo1
+          volume:
+            volumeClaimSpec:
+              accessModes:
+                - "ReadWriteOnce"
+              resources:
+                requests:
+                  storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: {{ $ns }}
+  labels:
+    app: keycloak
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keycloak
+  template:
+    metadata:
+      labels:
+        app: keycloak
+    spec:
+      containers:
+        - name: keycloak
+          image: "{{ $kc.image.repository }}:{{ $kc.image.tag }}"
+          imagePullPolicy: {{ $kc.image.pullPolicy }}
+          args:
+            - start
+            - --import-realm
+            - --http-enabled=true
+            - --hostname-strict=false
+            - --proxy-headers=xforwarded
+          env:
+            - name: KEYCLOAK_ADMIN
+              value: {{ $kc.admin.username }}
+            - name: KEYCLOAK_ADMIN_PASSWORD
+              value: {{ $kc.admin.password }}
+            - name: KC_HEALTH_ENABLED
+              value: "true"
+            - name: KC_DB
+              value: postgres
+            - name: KC_DB_URL_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-pg-pguser-keycloak
+                  key: host
+            - name: KC_DB_URL_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-pg-pguser-keycloak
+                  key: port
+            - name: KC_DB_URL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-pg-pguser-keycloak
+                  key: dbname
+            - name: KC_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-pg-pguser-keycloak
+                  key: user
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-pg-pguser-keycloak
+                  key: password
+          ports:
+            - containerPort: 8080
+              name: http
+          volumeMounts:
+            - name: realm-config
+              mountPath: /opt/keycloak/data/import
+              readOnly: true
+          resources:
+            {{- toYaml $kc.resources | nindent 12 }}
+          startupProbe:
+            httpGet:
+              path: /realms/master
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /realms/master
+              port: 8080
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /realms/master
+              port: 8080
+            periodSeconds: 15
+      volumes:
+        - name: realm-config
+          configMap:
+            name: keycloak-realm
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  namespace: {{ $ns }}
+  labels:
+    app: keycloak
+spec:
+  type: {{ $kc.service.type }}
+  ports:
+    - port: {{ $kc.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app: keycloak
+{{- end }}

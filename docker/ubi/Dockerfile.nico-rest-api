@@ -1,0 +1,69 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Build stage
+FROM --platform=$BUILDPLATFORM golang:1.25.4 AS builder
+
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+
+ENV CGO_ENABLED=0
+ENV GOOS=$TARGETOS
+ENV GOARCH=$TARGETARCH
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+
+COPY go.mod go.sum VERSION ./
+COPY sdk/standard/go.mod ./sdk/standard/
+RUN go mod download
+
+COPY api/ ./api/
+COPY common/ ./common/
+COPY auth/ ./auth/
+COPY db/ ./db/
+COPY workflow-schema/ ./workflow-schema/
+COPY workflow/ ./workflow/
+COPY site-workflow/ ./site-workflow/
+COPY ipam/ ./ipam/
+COPY site-manager/ ./site-manager/
+COPY cert-manager/ ./cert-manager/
+COPY openapi/ ./openapi/
+COPY cli/ ./cli/
+
+RUN mkdir -p /var/secrets/temporal/certs
+
+WORKDIR /workspace/api
+RUN VERSION=$(grep -v '^#' /workspace/VERSION | tr -d '[:space:]' 2>/dev/null || echo "dev") && \
+    BUILD_TIME=$(date +"%Y-%m-%d %H:%M:%S") && \
+    go build \
+        -ldflags "-extldflags '-static' -w -s \
+                  -X 'github.com/NVIDIA/infra-controller-rest/api/pkg/metadata.Version=${VERSION}' \
+                  -X 'github.com/NVIDIA/infra-controller-rest/api/pkg/metadata.BuildTime=${BUILD_TIME}'" \
+        -o /app/api \
+        ./cmd/api
+
+WORKDIR /workspace/cli
+RUN go build \
+        -ldflags "-extldflags '-static' -w -s" \
+        -o /app/nicocli \
+        ./cmd/cli
+
+# Runtime stage
+FROM registry.access.redhat.com/ubi9/ubi-micro:latest
+
+WORKDIR /app
+
+COPY --from=builder /app/api /app/api
+COPY --from=builder /app/nicocli /app/nicocli
+COPY --from=builder /var/secrets/temporal/certs /var/secrets/temporal/certs
+
+USER 1001
+
+EXPOSE 8388
+
+ENTRYPOINT ["/app/api"]

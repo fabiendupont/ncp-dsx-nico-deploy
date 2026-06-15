@@ -1,0 +1,81 @@
+{{/*
+SPDX-FileCopyrightText: Copyright (c) 2026 Red Hat, Inc. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+
+Waits for operator CRDs to be available before CNPG clusters
+and cert-manager Certificates can be created.
+*/}}
+
+{{- if or .Values.certManager.enabled .Values.crunchyPostgres.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-wait-operators
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nvidia-infra-controller-prereqs.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-25"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-wait-operators
+  labels:
+    {{- include "nvidia-infra-controller-prereqs.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-25"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-wait-operators
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-wait-operators
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nvidia-infra-controller-prereqs.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-20"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 60
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ .Release.Name }}-wait-operators
+      containers:
+        - name: wait
+          image: registry.redhat.io/openshift4/ose-cli:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              {{- if .Values.crunchyPostgres.enabled }}
+              echo "Waiting for CNPG CRD..."
+              until oc get crd postgresclusters.postgres-operator.crunchydata.com > /dev/null 2>&1; do
+                sleep 5
+              done
+              echo "CNPG CRD available"
+              {{- end }}
+              {{- if .Values.certManager.enabled }}
+              echo "Waiting for cert-manager CRDs..."
+              until oc get crd certificates.cert-manager.io > /dev/null 2>&1; do
+                sleep 5
+              done
+              echo "cert-manager CRDs available"
+              {{- end }}
+              echo "All operator CRDs ready"
+{{- end }}

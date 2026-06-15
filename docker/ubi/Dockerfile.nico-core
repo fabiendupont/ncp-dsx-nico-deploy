@@ -1,0 +1,98 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Red Hat, Inc. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# NICo Core — UBI-based multi-binary image for all Core tier services.
+# Build context: ncx-infra-controller-core repo root
+#
+# Build:
+#   docker build -t quay.io/fdupont-redhat/nico-core:latest \
+#     -f <this-repo>/docker/ubi/Dockerfile.nico-core \
+#     <ncx-infra-controller-core-root>
+
+# --- Builder stage ---
+FROM registry.access.redhat.com/ubi10/ubi:latest AS builder
+
+# C toolchain and build deps from RHEL repos
+RUN dnf install -y 'dnf-command(config-manager)' && \
+    dnf config-manager --set-enabled codeready-builder-for-rhel-10-x86_64-rpms && \
+    dnf install -y --allowerasing \
+    rust-toolset \
+    cmake \
+    postgresql-server postgresql-contrib \
+    openssl-devel perl-FindBin perl-File-Compare \
+    git clang-devel unzip curl \
+    tpm2-tss-devel \
+    && dnf clean all
+
+# Upgrade Rust to 1.95.0 via rustup (project requires it, RHEL ships 1.92)
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+    sh -s -- -y --default-toolchain 1.96.0
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Install protoc
+RUN curl -sLO https://github.com/protocolbuffers/protobuf/releases/download/v28.3/protoc-28.3-linux-x86_64.zip && \
+    unzip protoc-28.3-linux-x86_64.zip -d /usr/local && \
+    rm protoc-28.3-linux-x86_64.zip
+
+# Initialize PostgreSQL for sqlx compile-time query verification
+RUN mkdir -p /run/postgresql && chown postgres:postgres /run/postgresql && \
+    su postgres -c "initdb -D /var/lib/pgsql/data" && \
+    su postgres -c "pg_ctl start -D /var/lib/pgsql/data -l /tmp/pg.log -w -o '-k /run/postgresql'" && \
+    su postgres -c "createuser -s root -h /run/postgresql" && \
+    createdb -h /run/postgresql root
+
+WORKDIR /workspace
+COPY . .
+
+# Override pinned toolchain — v0.10.3 needs newer Rust than declared
+RUN rm -f rust-toolchain.toml
+
+# Strip symbols via cargo profile (static linking not possible due to proc-macros)
+# Instead, copy required shared libs into runtime image
+
+# Build static release binaries with PostgreSQL running
+ENV CARGO_PROFILE_RELEASE_LTO="thin"
+ENV CARGO_PROFILE_RELEASE_STRIP="symbols"
+ENV CARGO_PROFILE_RELEASE_DEBUG="false"
+ENV DATABASE_URL="postgresql://%2Frun%2Fpostgresql"
+RUN su postgres -c "pg_ctl start -D /var/lib/pgsql/data -l /tmp/pg.log -w -o '-k /run/postgresql'" && \
+    cargo build --release \
+        -p carbide-api \
+        -p carbide-admin-cli \
+        -p carbide-dns \
+        -p carbide-dsx-exchange-consumer \
+        -p carbide-bmc-proxy && \
+    mkdir -p /workspace/target/bin && \
+    find /workspace/target/release -maxdepth 1 -type f -executable \
+        -exec cp -t /workspace/target/bin {} +
+
+# --- Runtime stage ---
+FROM registry.access.redhat.com/ubi10/ubi-minimal:latest
+
+RUN microdnf install -y tpm2-tss && microdnf clean all
+
+LABEL name="nico-core" \
+      summary="NICo Core tier — bare metal infrastructure management" \
+      description="All Core tier binaries: API (gRPC), DNS, BMC proxy, DSX exchange consumer" \
+      io.k8s.display-name="NICo Core" \
+      io.k8s.description="NICo Infra Controller Core tier" \
+      com.redhat.component="nico-core"
+
+COPY --from=builder /workspace/target/bin/carbide-api /opt/nico/nico-api
+COPY --from=builder /workspace/target/bin/carbide-api /opt/carbide/carbide-api
+COPY --from=builder /workspace/target/bin/carbide-admin-cli /opt/nico/nico-admin-cli
+COPY --from=builder /workspace/target/bin/carbide-admin-cli /opt/carbide/carbide-admin-cli
+COPY --from=builder /workspace/target/bin/carbide-dns /opt/nico/nico-dns
+COPY --from=builder /workspace/target/bin/carbide-dsx-exchange-consumer /opt/nico/nico-dsx-exchange-consumer
+COPY --from=builder /workspace/target/bin/carbide-bmc-proxy /opt/nico/nico-bmc-proxy
+
+COPY --from=builder /workspace/crates/api-db/migrations/ /opt/nico/migrations/
+COPY --from=builder /workspace/crates/api/casbin-policy.csv /opt/nico/
+
+RUN ln -sf /opt/nico/nico-admin-cli /opt/carbide/forge-admin-cli
+
+USER 1001
+
+EXPOSE 1079 1080 1081
+
+ENTRYPOINT ["/opt/nico/nico-api"]

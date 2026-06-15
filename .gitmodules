@@ -1,0 +1,6 @@
+[submodule "helm/vendor/ncx-infra-controller-rest"]
+	path = helm/vendor/ncx-infra-controller-rest
+	url = ssh://git@github.com/NVIDIA/ncx-infra-controller-rest
+[submodule "helm/vendor/ncx-infra-controller-core"]
+	path = helm/vendor/ncx-infra-controller-core
+	url = ssh://git@github.com/NVIDIA/ncx-infra-controller-core

@@ -1,0 +1,45 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Build stage
+FROM --platform=$BUILDPLATFORM golang:1.25.4 AS builder
+
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+
+ENV CGO_ENABLED=0
+ENV GOOS=$TARGETOS
+ENV GOARCH=$TARGETARCH
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+
+COPY go.mod go.sum VERSION ./
+COPY sdk/standard/go.mod ./sdk/standard/
+RUN go mod download
+
+COPY common/ ./common/
+COPY db/ ./db/
+COPY workflow-schema/ ./workflow-schema/
+COPY ipam/ ./ipam/
+
+WORKDIR /workspace/db
+RUN go build \
+        -ldflags "-extldflags '-static' -w -s" \
+        -o /app/migrations \
+        ./cmd/migrations
+
+# Runtime stage
+FROM registry.access.redhat.com/ubi9/ubi-micro:latest
+
+WORKDIR /app
+
+COPY --from=builder /app/migrations /app/migrations
+
+USER 1001
+
+ENTRYPOINT ["/app/migrations"]

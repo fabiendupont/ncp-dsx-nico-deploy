@@ -1,0 +1,15 @@
+dependencies:
+- name: vault
+  repository: https://helm.releases.hashicorp.com
+  version: 0.33.0
+- name: nico-rest-common
+  repository: file://../vendor/ncx-infra-controller-rest/helm/charts/nico-rest/charts/nico-rest-common
+  version: 0.1.0
+- name: nico-rest-site-agent
+  repository: file://../vendor/ncx-infra-controller-rest/helm/charts/nico-rest-site-agent
+  version: 0.1.8
+- name: nico
+  repository: file://../vendor/ncx-infra-controller-core/helm
+  version: 0.1.1
+digest: sha256:7f6e79a5405cdd37cef4d332eca5b75c618c02e3ddad2fe1ba98545a757ef71d
+generated: "2026-06-20T10:03:42.432755125+02:00"

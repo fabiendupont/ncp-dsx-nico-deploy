@@ -1,0 +1,12 @@
+*.swp
+*.swo
+*~
+.DS_Store
+charts/*/charts/
+charts/*/Chart.lock
+helm/nico-cloud/charts/
+helm/nico-cloud/Chart.lock
+helm/nico-site/charts/
+helm/nico-site/Chart.lock
+helm/nico-temporal/charts/
+helm/nico-temporal/Chart.lock

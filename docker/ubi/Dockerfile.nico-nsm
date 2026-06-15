@@ -1,0 +1,66 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Build stage
+FROM --platform=$BUILDPLATFORM golang:1.25.4 AS builder
+
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+
+ENV CGO_ENABLED=0
+ENV GOOS=$TARGETOS
+ENV GOARCH=$TARGETARCH
+
+ENV GIT_TERMINAL_PROMPT=1
+
+ARG skipcache=0
+
+WORKDIR /workspace
+
+COPY go.mod go.sum VERSION ./
+COPY sdk/standard/go.mod ./sdk/standard/
+RUN go mod download
+
+COPY common/ ./common/
+COPY nvswitch-manager/ ./nvswitch-manager/
+
+WORKDIR /workspace/nvswitch-manager
+
+RUN go build -ldflags "-extldflags '-static'" \
+    -o /app/nsm \
+    .
+
+# Build sshpass from source — not available in UBI repos
+WORKDIR /tmp
+RUN apt-get update && apt-get install -y --no-install-recommends gcc make curl ca-certificates \
+    && curl -fsSL https://sourceforge.net/projects/sshpass/files/sshpass/1.10/sshpass-1.10.tar.gz/download \
+       | tar xz \
+    && cd sshpass-1.10 && ./configure && make && cp sshpass /usr/local/bin/sshpass \
+    && rm -rf /var/lib/apt/lists/*
+
+# Runtime stage
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+
+RUN microdnf install -y \
+    bash \
+    openssh-clients \
+    iputils \
+    && microdnf clean all
+
+COPY --from=builder /usr/local/bin/sshpass /usr/local/bin/sshpass
+
+RUN mkdir -p /opt/nvswitch-manager
+
+WORKDIR /opt/nvswitch-manager
+
+COPY --from=builder /app/nsm /app/nsm
+COPY nvswitch-manager/scripts/ ./scripts/
+COPY nvswitch-manager/firmware/ ./firmware/
+
+RUN chmod +x scripts/*.sh
+
+USER 1001
+
+EXPOSE 50051
+
+ENTRYPOINT ["/app/nsm", "serve"]

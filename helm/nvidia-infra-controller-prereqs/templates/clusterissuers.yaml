@@ -1,0 +1,149 @@
+{{/*
+SPDX-FileCopyrightText: Copyright (c) 2026 Red Hat, Inc. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+
+CA-based ClusterIssuers for development.
+Creates a self-signed root CA, then ClusterIssuers that issue
+leaf certificates from that CA. All NICo services share the
+same trust root, enabling mTLS with host verification.
+
+In production, replace with Vault PKI or ACME issuers.
+*/}}
+
+{{- if .Values.clusterIssuers.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-cert-manager-issuers
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nvidia-infra-controller-prereqs.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation
+data:
+  issuers.yaml: |
+    apiVersion: cert-manager.io/v1
+    kind: ClusterIssuer
+    metadata:
+      name: nico-bootstrap-issuer
+    spec:
+      selfSigned: {}
+    ---
+    apiVersion: cert-manager.io/v1
+    kind: Certificate
+    metadata:
+      name: nico-root-ca
+      namespace: cert-manager
+    spec:
+      isCA: true
+      commonName: nico-root-ca
+      secretName: nico-root-ca-secret
+      duration: 87600h
+      renewBefore: 8760h
+      privateKey:
+        algorithm: ECDSA
+        size: 256
+      issuerRef:
+        name: nico-bootstrap-issuer
+        kind: ClusterIssuer
+        group: cert-manager.io
+    ---
+    apiVersion: cert-manager.io/v1
+    kind: ClusterIssuer
+    metadata:
+      name: nico-rest-ca-issuer
+    spec:
+      ca:
+        secretName: nico-root-ca-secret
+    ---
+    apiVersion: cert-manager.io/v1
+    kind: ClusterIssuer
+    metadata:
+      name: vault-nico-issuer
+    spec:
+      ca:
+        secretName: nico-root-ca-secret
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-setup-issuers
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nvidia-infra-controller-prereqs.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 30
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ .Release.Name }}-setup-issuers
+      containers:
+        - name: setup
+          image: registry.redhat.io/openshift4/ose-cli:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Waiting for cert-manager CRDs..."
+              until oc get crd clusterissuers.cert-manager.io > /dev/null 2>&1; do
+                sleep 5
+              done
+              echo "Waiting for cert-manager webhook..."
+              until oc get pods -n cert-manager -l app=cert-manager -o jsonpath='{.items[0].status.phase}' 2>/dev/null | grep -q Running; do
+                sleep 5
+              done
+              sleep 10
+              echo "Applying ClusterIssuers..."
+              oc apply -f /etc/issuers/issuers.yaml
+              echo "Waiting for ClusterIssuers to be ready..."
+              until oc get clusterissuer nico-rest-ca-issuer -o jsonpath='{.status.conditions[0].status}' 2>/dev/null | grep -q True; do
+                sleep 5
+              done
+              echo "ClusterIssuers ready"
+          volumeMounts:
+            - name: issuers
+              mountPath: /etc/issuers
+              readOnly: true
+      volumes:
+        - name: issuers
+          configMap:
+            name: {{ .Release.Name }}-cert-manager-issuers
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-setup-issuers
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nvidia-infra-controller-prereqs.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-setup-issuers
+  labels:
+    {{- include "nvidia-infra-controller-prereqs.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-setup-issuers
+    namespace: {{ .Release.Namespace }}
+{{- end }}

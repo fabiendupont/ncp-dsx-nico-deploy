@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Red Hat, Inc. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+certManager:
+  enabled: true
+  channel: stable-v1
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic
+  namespace: cert-manager-operator
+
+crunchyPostgres:
+  enabled: true
+  channel: v5
+  source: certified-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic
+  namespace: openshift-operators
+
+rhbk:
+  enabled: true
+  channel: stable-v26
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic
+  namespace: rhbk-operator
+
+clusterIssuers:
+  enabled: true

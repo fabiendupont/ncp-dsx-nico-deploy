@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Red Hat, Inc. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Make nico-roots (Vault CA) volume optional for dev environments.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nico-api
+spec:
+  template:
+    spec:
+      volumes:
+        - name: nico-roots
+          secret:
+            secretName: nico-roots
+            optional: true

@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Red Hat, Inc. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Add PGSSLMODE=require for Crunchy PGO TLS-enforced connections.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: placeholder
+spec:
+  template:
+    spec:
+      containers:
+        - name: migrations
+          env:
+            - name: PGSSLMODE
+              value: require

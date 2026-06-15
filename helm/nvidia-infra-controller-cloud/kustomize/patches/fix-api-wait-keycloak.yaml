@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Red Hat, Inc. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Wait for Keycloak OIDC discovery endpoint before starting the API.
+# The API fetches JWKS at startup and skips Keycloak auth if it fails.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: placeholder
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: wait-for-keycloak
+          image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Waiting for Keycloak OIDC endpoint..."
+              until curl -sf http://keycloak.nvidia-infra-controller-keycloak:8080/realms/nico-dev/.well-known/openid-configuration > /dev/null 2>&1; do
+                sleep 5
+              done
+              echo "Keycloak ready"
