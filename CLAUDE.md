@@ -5,7 +5,7 @@
 Red Hat deployment artifacts for NVIDIA NICo (Infra Controller), part of the
 DSX OS platform, targeting NVIDIA Cloud Partners (NCP). This repo does NOT
 fork upstream — it builds UBI-based container images from upstream source and
-provides Helm charts with Red Hat-preferred components (SPIFFE, CloudNativePG,
+provides Helm charts with Red Hat-preferred components (SPIFFE, Crunchy PostgreSQL,
 RHBK).
 
 ## Upstream Repos (read-only, never modified)
@@ -14,9 +14,7 @@ RHBK).
 |---|---|
 | `github.com/NVIDIA/infra-controller` | Go/Rust source (monorepo: REST API, site-agent, Core) |
 
-Local clones expected at:
-- `~/Code/github.com/NVIDIA/infra-controller`
-- `~/Code/github.com/NVIDIA/ncx-infra-controller-core`
+Vendored as git submodule at `helm/vendor/infra-controller`.
 
 ## Related Repos (we own)
 
@@ -59,7 +57,7 @@ nvidia-infra-controller-site namespace (per-site, edge)
 The cloud profile hosts the single Temporal instance. Per-site Temporal
 namespaces (named by site UUID) are created dynamically by the REST API
 at site registration. Site-agents bootstrap with an OTP to get mTLS certs
-for connecting to cloud's Temporal. Operators (cert-manager, CNPG, RHBK)
+for connecting to cloud's Temporal. Operators (cert-manager, Crunchy PGO, RHBK)
 are installed as pre-install hooks with `enabled` flags for single-cluster
 dev deployments.
 
@@ -97,28 +95,30 @@ Makefile                             Build, deploy, test targets
 
 ## Container Images
 
-All images use UBI base, published to `quay.io/fdupont-redhat/nico-*`.
+All images use UBI 10 base, built by Konflux. Dockerfiles in `docker/ubi/`.
 
 | Image | Base | Binary |
 |---|---|---|
-| nico-rest-api | ubi9/ubi-micro | api + nicocli |
-| nico-rest-workflow | ubi9/ubi-micro | workflow |
-| nico-rest-site-agent | ubi9/ubi-micro | site-agent |
-| nico-rest-site-manager | ubi9/ubi-micro | sitemgr |
-| nico-rest-cert-manager | ubi9/ubi-micro | credsmgr |
-| nico-rest-db | ubi9/ubi-micro | migrations |
-| nico-flow | ubi9/ubi-micro | flow |
-| nico-psm | ubi9/ubi-micro | psm |
-| nico-nsm | ubi9/ubi-minimal | nsm + scripts + sshpass |
+| nico-rest-api | ubi10/ubi-micro | api + nicocli |
+| nico-rest-workflow | ubi10/ubi-micro | workflow |
+| nico-rest-site-agent | ubi10/ubi-micro | site-agent |
+| nico-rest-site-manager | ubi10/ubi-micro | sitemgr |
+| nico-rest-cert-manager | ubi10/ubi-micro | credsmgr |
+| nico-rest-db | ubi10/ubi-micro | migrations |
+| nico-flow | ubi10/ubi-micro | flow |
+| nico-psm | ubi10/ubi-micro | psm |
+| nico-nsm | ubi10/ubi-minimal | nsm + scripts + sshpass |
+| nico-core | ubi10/ubi-minimal | carbide-api, dns, bmc-proxy |
+| nico-admin-cli | ubi10/ubi-micro | nico-admin-cli (Core gRPC CLI) |
+| nicocli | ubi10/ubi-micro | nicocli (REST API CLI, from OpenAPI) |
 
-Build: `make docker-build-ubi`
-Push: `make docker-push-ubi`
+Local build: `make docker-build-ubi` (requires submodule checkout)
 
 ## Key Makefile Targets
 
 ```
-make docker-build-ubi    Build all 9 UBI images
-make docker-push-ubi     Push to quay.io/fdupont-redhat
+make docker-build-ubi    Build REST images locally
+make docker-build-core   Build Core + admin-cli images locally
 make helm-dep-build      Build Helm chart dependencies
 make helm-lint           Lint all charts
 make helm-template       Template all charts (dry-run)

@@ -1,0 +1,45 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Red Hat, Inc. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+name: Watch Upstream Tags
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Check latest upstream tag
+        id: upstream
+        run: |
+          LATEST=$(gh api repos/NVIDIA/infra-controller/tags --jq '.[0].name' 2>/dev/null || echo "unknown")
+          CURRENT=$(cd helm/vendor/infra-controller && git describe --tags --abbrev=0 2>/dev/null || echo "none")
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "Latest upstream: $LATEST, Current: $CURRENT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update submodule if new tag
+        if: steps.upstream.outputs.latest != steps.upstream.outputs.current && steps.upstream.outputs.latest != 'unknown'
+        run: |
+          cd helm/vendor/infra-controller
+          git fetch --tags
+          git checkout ${{ steps.upstream.outputs.latest }}
+          cd ../../..
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add helm/vendor/infra-controller
+          git commit -s -m "Update upstream to ${{ steps.upstream.outputs.latest }}"
+          git push
+

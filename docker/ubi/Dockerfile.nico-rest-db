@@ -2,39 +2,33 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Build stage
-FROM --platform=$BUILDPLATFORM golang:1.25.4 AS builder
-
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
-
+FROM registry.access.redhat.com/ubi10/go-toolset:latest AS builder
+USER root
 ENV CGO_ENABLED=0
-ENV GOOS=$TARGETOS
-ENV GOARCH=$TARGETARCH
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /workspace
 
 COPY go.mod go.sum VERSION ./
 COPY sdk/standard/go.mod ./sdk/standard/
-RUN go mod download
+RUN --mount=type=cache,target=/root/go/pkg/mod   \
+    go mod download
 
 COPY common/ ./common/
 COPY db/ ./db/
 COPY workflow-schema/ ./workflow-schema/
 COPY ipam/ ./ipam/
 
+USER root
+ENV CGO_ENABLED=0
 WORKDIR /workspace/db
-RUN go build \
+RUN --mount=type=cache,target=/root/go/pkg/mod   \
+    --mount=type=cache,target=/root/.cache/go-build   \
+    go build \
         -ldflags "-extldflags '-static' -w -s" \
         -o /app/migrations \
         ./cmd/migrations
 
 # Runtime stage
-FROM registry.access.redhat.com/ubi9/ubi-micro:latest
+FROM registry.access.redhat.com/ubi10/ubi-micro:latest
 
 WORKDIR /app
 

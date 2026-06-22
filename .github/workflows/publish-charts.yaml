@@ -1,0 +1,51 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Red Hat, Inc. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+name: Publish Helm Charts
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'helm/nvidia-infra-controller-*/**'
+      - '.github/workflows/publish-charts.yaml'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  CHART_PREFIX: oci://ghcr.io/${{ github.repository_owner }}/charts
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Log in to ghcr.io
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+
+      - name: Add Helm repos
+        run: |
+          helm repo add temporal https://go.temporal.io/helm-charts
+          helm repo add hashicorp https://helm.releases.hashicorp.com
+          helm repo update
+
+      - name: Build dependencies
+        run: |
+          helm dependency build helm/nvidia-infra-controller-cloud/
+          helm dependency build helm/nvidia-infra-controller-site/
+
+      - name: Package and push charts
+        run: |
+          for chart in nvidia-infra-controller-prereqs nvidia-infra-controller-cloud nvidia-infra-controller-site; do
+            helm package helm/$chart/
+            helm push ${chart}-*.tgz ${{ env.CHART_PREFIX }}
+          done

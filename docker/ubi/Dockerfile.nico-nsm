@@ -2,44 +2,46 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Build stage
-FROM --platform=$BUILDPLATFORM golang:1.25.4 AS builder
-
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
-
-ENV CGO_ENABLED=0
-ENV GOOS=$TARGETOS
-ENV GOARCH=$TARGETARCH
+FROM registry.access.redhat.com/ubi10/go-toolset:latest AS builder
 
 ENV GIT_TERMINAL_PROMPT=1
 
 ARG skipcache=0
 
+USER root
+ENV CGO_ENABLED=0
 WORKDIR /workspace
 
 COPY go.mod go.sum VERSION ./
 COPY sdk/standard/go.mod ./sdk/standard/
-RUN go mod download
+RUN --mount=type=cache,target=/root/go/pkg/mod   \
+    go mod download
 
 COPY common/ ./common/
 COPY nvswitch-manager/ ./nvswitch-manager/
 
+USER root
+ENV CGO_ENABLED=0
 WORKDIR /workspace/nvswitch-manager
 
-RUN go build -ldflags "-extldflags '-static'" \
+RUN --mount=type=cache,target=/root/go/pkg/mod   \
+    --mount=type=cache,target=/root/.cache/go-build   \
+    go build -ldflags "-extldflags '-static'" \
     -o /app/nsm \
     .
 
-# Build sshpass from source — not available in UBI repos
-WORKDIR /tmp
-RUN apt-get update && apt-get install -y --no-install-recommends gcc make curl ca-certificates \
-    && curl -fsSL https://sourceforge.net/projects/sshpass/files/sshpass/1.10/sshpass-1.10.tar.gz/download \
-       | tar xz \
-    && cd sshpass-1.10 && ./configure && make && cp sshpass /usr/local/bin/sshpass \
-    && rm -rf /var/lib/apt/lists/*
+# Install sshpass (requires RHEL repos via activation key)
+RUN --mount=type=secret,id=rhsm_org \
+    --mount=type=secret,id=rhsm_activationkey \
+    rm -f /etc/rhsm-host && \
+    trap 'subscription-manager unregister || true' EXIT && \
+    subscription-manager register \
+      --org="$(cat /run/secrets/rhsm_org)" \
+      --activationkey="$(cat /run/secrets/rhsm_activationkey)" && \
+    dnf install -y sshpass && dnf clean all
 
 # Runtime stage
-FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+FROM registry.access.redhat.com/ubi10/ubi-minimal:latest
 
 RUN microdnf install -y \
     bash \
@@ -47,7 +49,7 @@ RUN microdnf install -y \
     iputils \
     && microdnf clean all
 
-COPY --from=builder /usr/local/bin/sshpass /usr/local/bin/sshpass
+COPY --from=builder /usr/bin/sshpass /usr/bin/sshpass
 
 RUN mkdir -p /opt/nvswitch-manager
 

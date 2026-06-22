@@ -5,7 +5,7 @@
 .PHONY: deploy-prereqs deploy-cloud deploy-site
 
 # Upstream source repo (for building images)
-UPSTREAM_REST ?= $(HOME)/Code/github.com/NVIDIA/ncx-infra-controller-rest
+UPSTREAM ?= helm/vendor/infra-controller
 
 # Image configuration
 IMAGE_REGISTRY ?= quay.io/fdupont-redhat
@@ -25,21 +25,18 @@ SITE_KUSTOMIZE := $(CURDIR)/helm/nvidia-infra-controller-site/kustomize
 # =============================================================================
 
 docker-build-ubi:
-	cd $(UPSTREAM_REST) && \
-	podman build -t $(IMAGE_REGISTRY)/nico-rest-api:$(IMAGE_TAG) -f $(CURDIR)/$(DOCKERFILE_DIR)/Dockerfile.nico-rest-api . && \
-	podman build -t $(IMAGE_REGISTRY)/nico-rest-workflow:$(IMAGE_TAG) -f $(CURDIR)/$(DOCKERFILE_DIR)/Dockerfile.nico-rest-workflow . && \
-	podman build -t $(IMAGE_REGISTRY)/nico-rest-site-manager:$(IMAGE_TAG) -f $(CURDIR)/$(DOCKERFILE_DIR)/Dockerfile.nico-rest-site-manager . && \
-	podman build -t $(IMAGE_REGISTRY)/nico-rest-site-agent:$(IMAGE_TAG) -f $(CURDIR)/$(DOCKERFILE_DIR)/Dockerfile.nico-rest-site-agent . && \
-	podman build -t $(IMAGE_REGISTRY)/nico-rest-db:$(IMAGE_TAG) -f $(CURDIR)/$(DOCKERFILE_DIR)/Dockerfile.nico-rest-db . && \
-	podman build -t $(IMAGE_REGISTRY)/nico-rest-cert-manager:$(IMAGE_TAG) -f $(CURDIR)/$(DOCKERFILE_DIR)/Dockerfile.nico-rest-cert-manager . && \
-	podman build -t $(IMAGE_REGISTRY)/nico-flow:$(IMAGE_TAG) -f $(CURDIR)/$(DOCKERFILE_DIR)/Dockerfile.nico-flow . && \
-	podman build -t $(IMAGE_REGISTRY)/nico-psm:$(IMAGE_TAG) -f $(CURDIR)/$(DOCKERFILE_DIR)/Dockerfile.nico-psm . && \
-	podman build -t $(IMAGE_REGISTRY)/nico-nsm:$(IMAGE_TAG) -f $(CURDIR)/$(DOCKERFILE_DIR)/Dockerfile.nico-nsm .
+	@for img in nico-rest-api nico-rest-workflow nico-rest-site-manager nico-rest-site-agent \
+		nico-rest-db nico-rest-cert-manager nico-flow nico-psm nico-nsm; do \
+		echo "Building $$img..." && \
+		podman build -t $(IMAGE_REGISTRY)/$$img:$(IMAGE_TAG) \
+			-f $(DOCKERFILE_DIR)/Dockerfile.$$img $(UPSTREAM)/rest-api; \
+	done
 
 docker-build-core:
-	podman build -t $(IMAGE_REGISTRY)/nico-core:v0.10.3 \
-		-f $(DOCKERFILE_DIR)/Dockerfile.nico-core \
-		helm/vendor/ncx-infra-controller-core/
+	podman build -t $(IMAGE_REGISTRY)/nico-core:$(IMAGE_TAG) \
+		-f $(DOCKERFILE_DIR)/Dockerfile.nico-core $(UPSTREAM)
+	podman build -t $(IMAGE_REGISTRY)/nico-admin-cli:$(IMAGE_TAG) \
+		-f $(DOCKERFILE_DIR)/Dockerfile.nico-admin-cli $(UPSTREAM)
 
 docker-push-ubi:
 	@for img in nico-rest-api nico-rest-workflow nico-rest-site-manager nico-rest-site-agent \

@@ -1,0 +1,59 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Red Hat, Inc. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+name: Watch UBI Base Images
+
+on:
+  schedule:
+    - cron: '37 7 * * *'
+  workflow_dispatch:
+
+env:
+  DIGEST_FILE: .github/ubi-digests.json
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Skopeo
+        run: sudo apt-get update && sudo apt-get install -y skopeo
+
+      - name: Check UBI digests
+        id: check
+        run: |
+          MICRO=$(skopeo inspect --no-tags docker://registry.access.redhat.com/ubi10/ubi-micro:latest | jq -r '.Digest')
+          MINIMAL=$(skopeo inspect --no-tags docker://registry.access.redhat.com/ubi10/ubi-minimal:latest | jq -r '.Digest')
+
+          echo "ubi-micro: $MICRO"
+          echo "ubi-minimal: $MINIMAL"
+
+          CHANGED=false
+          if [ -f "${{ env.DIGEST_FILE }}" ]; then
+            OLD_MICRO=$(jq -r '."ubi-micro"' "${{ env.DIGEST_FILE }}")
+            OLD_MINIMAL=$(jq -r '."ubi-minimal"' "${{ env.DIGEST_FILE }}")
+            if [ "$MICRO" != "$OLD_MICRO" ] || [ "$MINIMAL" != "$OLD_MINIMAL" ]; then
+              CHANGED=true
+            fi
+          else
+            CHANGED=true
+          fi
+
+          echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
+
+          jq -n --arg micro "$MICRO" --arg minimal "$MINIMAL" \
+            '{"ubi-micro": $micro, "ubi-minimal": $minimal}' > "${{ env.DIGEST_FILE }}"
+
+      - name: Commit digest update
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "${{ env.DIGEST_FILE }}"
+          git commit -s -m "Update UBI base image digests" || true
+          git push
+

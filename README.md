@@ -27,6 +27,7 @@ DOMAIN=$(oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain
 KC_URL="https://keycloak-rhbk-operator.${DOMAIN}"
 API_URL="https://nico-rest-api-nvidia-infra-controller-cloud.${DOMAIN}"
 
+# Get a Keycloak token
 TOKEN=$(curl -sk -X POST "$KC_URL/realms/nico-dev/protocol/openid-connect/token" \
   -d "grant_type=password" \
   -d "client_id=nico-api" \
@@ -34,13 +35,10 @@ TOKEN=$(curl -sk -X POST "$KC_URL/realms/nico-dev/protocol/openid-connect/token"
   -d "username=admin" \
   -d "password=adminpassword" | python3 -c "import json,sys; print(json.load(sys.stdin)['access_token'])")
 
-curl -sk "$API_URL/v2/org/test-org/nico/infrastructure-provider/current" \
-  -H "Authorization: Bearer $TOKEN" > /dev/null
-
-curl -sk -X POST "$API_URL/v2/org/test-org/nico/site" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "site-1", "description": "First site"}' | python3 -m json.tool
+# Create site using nicocli (available in the nico-rest-api pod)
+oc exec deployment/nico-rest-api -n nvidia-infra-controller-cloud -- \
+  /app/nicocli --api-url https://localhost:8388 --token "$TOKEN" \
+  site create --org test-org --name site-1 --description "First site"
 ```
 
 Record `id` (site UUID) and `registrationToken` (OTP) from the response.
@@ -67,14 +65,32 @@ oc create secret generic site-registration \
 make deploy-site SITE_ID=<site-id>
 ```
 
-## Container Images
+## CLI Tools
 
-Pre-built UBI images at `quay.io/fdupont-redhat/nico-*:latest`.
+Two CLI images for interacting with NICo:
+
+**nicocli** — REST API client (auto-generated from OpenAPI, site/org management):
 
 ```bash
-make docker-build-ubi    # Build from source
-make docker-push-ubi     # Push to registry
+oc run nicocli --rm -it --restart=Never \
+  --image=<registry>/nicocli:latest \
+  -- --keycloak-url https://keycloak-rhbk-operator.<domain> \
+     --base-url https://nico-rest-api-nvidia-infra-controller-cloud.<domain> \
+     site list --org test-org
 ```
+
+**nico-admin-cli** — Core gRPC client (bare metal management, host discovery):
+
+```bash
+oc run nico-admin-cli --rm -it --restart=Never \
+  -n nvidia-infra-controller-site \
+  --image=<registry>/nico-admin-cli:latest \
+  -- site-explorer get-report
+```
+
+## Container Images
+
+UBI 10-based images built by Konflux. Dockerfiles in `docker/ubi/`.
 
 ## License
 

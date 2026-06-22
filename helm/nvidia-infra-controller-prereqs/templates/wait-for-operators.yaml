@@ -2,8 +2,8 @@
 SPDX-FileCopyrightText: Copyright (c) 2026 Red Hat, Inc. All rights reserved.
 SPDX-License-Identifier: Apache-2.0
 
-Waits for operator CRDs to be available before CNPG clusters
-and cert-manager Certificates can be created.
+Waits for operator CRDs to be available before Crunchy PostgreSQL
+clusters and cert-manager Certificates can be created.
 */}}
 
 {{- if or .Values.certManager.enabled .Values.crunchyPostgres.enabled }}
@@ -64,11 +64,11 @@ spec:
             - -c
             - |
               {{- if .Values.crunchyPostgres.enabled }}
-              echo "Waiting for CNPG CRD..."
+              echo "Waiting for Crunchy PostgreSQL CRD..."
               until oc get crd postgresclusters.postgres-operator.crunchydata.com > /dev/null 2>&1; do
                 sleep 5
               done
-              echo "CNPG CRD available"
+              echo "Crunchy PostgreSQL CRD available"
               {{- end }}
               {{- if .Values.certManager.enabled }}
               echo "Waiting for cert-manager CRDs..."

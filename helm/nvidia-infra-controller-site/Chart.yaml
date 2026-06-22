@@ -4,7 +4,7 @@
 apiVersion: v2
 name: nvidia-infra-controller-site
 description: >-
-  NVIDIA Infra Controller site profile — deploys operators (cert-manager, CNPG),
+  NVIDIA Infra Controller site profile — deploys operators (cert-manager, Crunchy PGO),
   site-agent, and Core tier (bare metal management). No local Temporal — the
   site-agent connects to the cloud profile's Temporal via OTP-bootstrapped certs.
 type: application
@@ -17,12 +17,12 @@ dependencies:
     repository: "https://helm.releases.hashicorp.com"
   - name: nico-rest-common
     version: "0.1.0"
-    repository: "file://../vendor/ncx-infra-controller-rest/helm/charts/nico-rest/charts/nico-rest-common"
+    repository: "file://../vendor/infra-controller/helm/rest/nico-rest/charts/nico-rest-common"
   - name: nico-rest-site-agent
-    version: "0.1.8"
-    repository: "file://../vendor/ncx-infra-controller-rest/helm/charts/nico-rest-site-agent"
+    version: "0.1.9"
+    repository: "file://../vendor/infra-controller/helm/rest/nico-rest-site-agent"
   - name: nico
     version: "0.1.1"
-    repository: "file://../vendor/ncx-infra-controller-core/helm"
+    repository: "file://../vendor/infra-controller/helm"
     alias: nico-core
     condition: nico-core.enabled

@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Red Hat, Inc. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# NICo CLI — minimal image for REST API interaction.
+# Auto-generated from OpenAPI spec, supports all API endpoints.
+# Build context: infra-controller/rest-api
+
+FROM registry.access.redhat.com/ubi10/go-toolset:latest AS builder
+USER root
+ENV CGO_ENABLED=0
+WORKDIR /workspace
+
+COPY . .
+RUN --mount=type=cache,target=/root/go/pkg/mod   \
+    go mod download
+
+RUN --mount=type=cache,target=/root/go/pkg/mod   \
+    --mount=type=cache,target=/root/.cache/go-build   \
+    go build -ldflags "-extldflags '-static' -w -s" \
+    -o /app/nicocli \
+    ./cli/cmd/cli
+
+FROM registry.access.redhat.com/ubi10/ubi-micro:latest
+
+COPY --from=builder /app/nicocli /usr/local/bin/nicocli
+
+ENTRYPOINT ["nicocli"]
