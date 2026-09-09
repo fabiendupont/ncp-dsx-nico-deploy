@@ -68,6 +68,7 @@ spec:
               until oc get crd postgresclusters.postgres-operator.crunchydata.com > /dev/null 2>&1; do
                 sleep 5
               done
+              oc wait --for=condition=Established crd postgresclusters.postgres-operator.crunchydata.com --timeout=120s
               echo "Crunchy PostgreSQL CRD available"
               {{- end }}
               {{- if .Values.certManager.enabled }}
@@ -75,6 +76,7 @@ spec:
               until oc get crd certificates.cert-manager.io > /dev/null 2>&1; do
                 sleep 5
               done
+              oc wait --for=condition=Established crd certificates.cert-manager.io --timeout=120s
               echo "cert-manager CRDs available"
               {{- end }}
               {{- if .Values.externalSecrets.enabled }}
@@ -82,6 +84,7 @@ spec:
               until oc get crd externalsecrets.external-secrets.io > /dev/null 2>&1; do
                 sleep 5
               done
+              oc wait --for=condition=Established crd externalsecrets.external-secrets.io --timeout=120s
               echo "External Secrets CRDs available"
               echo "Waiting for ExternalSecretsConfig CRD..."
               until oc get crd externalsecretsconfigs.operator.openshift.io > /dev/null 2>&1; do
@@ -98,5 +101,11 @@ spec:
               EOCFG
               echo "ExternalSecretsConfig created — ESO controller will deploy"
               {{- end }}
+              echo "Waiting for RHBK Keycloak CRDs..."
+              until oc get crd keycloaks.k8s.keycloak.org > /dev/null 2>&1; do
+                sleep 5
+              done
+              oc wait --for=condition=Established crd keycloaks.k8s.keycloak.org --timeout=120s
+              echo "RHBK Keycloak CRDs available"
               echo "All operator CRDs ready"
 {{- end }}
