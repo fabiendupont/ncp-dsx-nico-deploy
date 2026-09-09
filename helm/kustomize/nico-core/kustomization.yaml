@@ -39,12 +39,6 @@ patches:
       kind: Deployment
       name: nico-api
 
-  # Remove SYS_PTRACE, set RUST_BACKTRACE=1 (production-safe)
-  - path: patches/fix-core-security-context.yaml
-    target:
-      kind: Deployment
-      name: nico-api
-
   # BMC proxy: fix Crunchy secret key (user not username)
   - path: patches/fix-bmc-proxy-secret-keys.yaml
     target:
@@ -56,34 +50,6 @@ patches:
     target:
       kind: Deployment
       name: flow
-
-  # Remove SYS_PTRACE from DSX Exchange Consumer for OpenShift SCC
-  - path: patches/fix-dsx-exchange-consumer-security-context.yaml
-    target:
-      kind: Deployment
-      name: nico-dsx-exchange-consumer
-
-  # Remove SYS_PTRACE/IPC_LOCK from remaining Core services for OpenShift SCC
-  - path: patches/fix-dhcp-security-context.yaml
-    target:
-      kind: Deployment
-      name: nico-dhcp
-  - path: patches/fix-hardware-health-security-context.yaml
-    target:
-      kind: Deployment
-      name: nico-hardware-health
-  - path: patches/fix-pxe-security-context.yaml
-    target:
-      kind: Deployment
-      name: nico-pxe
-  - path: patches/fix-ssh-console-security-context.yaml
-    target:
-      kind: Deployment
-      name: nico-ssh-console-rs
-  - path: patches/fix-dns-security-context.yaml
-    target:
-      kind: StatefulSet
-      name: nico-dns
 
   # Fix wrong CLI flag guessed by the chart's binary-detection script
   - path: patches/fix-dns-flag-name.yaml

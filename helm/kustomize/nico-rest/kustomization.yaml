@@ -27,8 +27,3 @@ patches:
     target:
       kind: Deployment
       name: nico-rest-api
-  # Clear securityContext on credsmgr for OpenShift SCC
-  - path: patches/fix-credsmgr-securitycontext.yaml
-    target:
-      kind: Deployment
-      name: nico-rest-cert-manager

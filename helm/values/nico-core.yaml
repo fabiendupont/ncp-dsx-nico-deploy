@@ -8,14 +8,14 @@
 
 global:
   image:
-    # Built from docker/ubi/Dockerfile.nico-core — quay.io/fdupont-redhat/nico-core
-    # never shipped nico-dhcp/nico-hardware-health/nico-pxe/nico-ssh-console-rs
-    # binaries. Pinned to an immutable tag, not `latest`: this quay.io namespace
-    # already had a stale `latest` cached on cluster nodes from an unrelated
-    # build, and IfNotPresent kept serving it after a new push under the same tag.
-    repository: quay.io/rh-ee-skapon/nico-core
-    tag: dhcp-hooks-20260826b
-    pullPolicy: IfNotPresent
+    # Single image shared by all Core services (nico-api, nico-dhcp, nico-dns,
+    # nico-hardware-health, nico-pxe, nico-ssh-console-rs, nico-bmc-proxy), built
+    # from docker/ubi/Dockerfile.nico-core and published by
+    # .github/workflows/build-images.yaml. pullPolicy inherits upstream's
+    # IfNotPresent; override with --set global.image.pullPolicy=Always for local
+    # tests that re-push :latest. Releases pin an immutable tag (see repo tags).
+    repository: ghcr.io/rh-ecosystem-edge/ncp-dsx-nico-deploy/nico-core
+    tag: latest
   spiffe:
     trustDomain: nico.local
   certificate:
@@ -27,6 +27,15 @@ global:
 nico-api:
   enabled: true
   replicas: 1
+  # Drop the chart's default SYS_PTRACE capability (debug-backtraces only, and
+  # inert under OpenShift's non-root range UID anyway). Lets the pod run under
+  # restricted-v2 with no custom SCC. See docker/ubi/Dockerfile.nico-core
+  # (USER 1001) and upstream chart values containerSecurityContext.
+  containerSecurityContext: null
+  # Short backtraces (production-safe) instead of the chart default "full",
+  # which SYS_PTRACE was only ever needed to enrich.
+  env:
+    RUST_BACKTRACE: "1"
   # Chart default (basic) is rejected outright: "CARBIDE_WEB_AUTH_TYPE=basic
   # is not supported" (crates/api-web/src/lib.rs) — dropped upstream without
   # the chart catching up.
@@ -96,6 +105,8 @@ nico-bmc-proxy:
       configMapName: nico-system-nico-database-config
 nico-dhcp:
   enabled: true
+  # Drop the chart's default SYS_PTRACE capability (see nico-api).
+  containerSecurityContext: null
   config:
     kea:
       # Chart default is a Debian path; our UBI image installs kea from
@@ -127,6 +138,8 @@ nico-dhcp:
 nico-dns:
   enabled: true
   replicas: 1
+  # Drop the chart's default SYS_PTRACE capability (see nico-api).
+  containerSecurityContext: null
   # Port 53 needs CAP_NET_BIND_SERVICE, but this cluster's runtime doesn't
   # propagate it to the ambient set for non-root exec (CapBnd has it,
   # CapEff doesn't — confirmed via /proc/1/status), so bind() still fails
@@ -144,10 +157,16 @@ nico-dns:
   # volume mount not present in the chart template)
 nico-dsx-exchange-consumer:
   enabled: false
+  # Drop the chart's default SYS_PTRACE capability (see nico-api).
+  containerSecurityContext: null
 nico-hardware-health:
   enabled: true
+  # Drop the chart's default SYS_PTRACE capability (see nico-api).
+  containerSecurityContext: null
 nico-pxe:
   enabled: true
+  # Drop the chart's default SYS_PTRACE capability (see nico-api).
+  containerSecurityContext: null
   # Same as nico-api.legacyAlias above — forge-system namespace we don't own.
   legacyAlias:
     enabled: false
@@ -161,6 +180,8 @@ nico-pxe:
   #   command: ["sh", "-c", "cp -r /aarch64 /apt /firmware /boot-artifacts/blobs/internal"]
 nico-ssh-console-rs:
   enabled: true
+  # Drop the chart's default IPC_LOCK capability (see nico-api).
+  containerSecurityContext: null
   # Chart hardcodes port 22 in its static config.toml — same ambient-
   # capability issue as nico-dns above. Content below is that file
   # verbatim except for listen_address; defaults already match this
@@ -207,13 +228,7 @@ nico-flow:
   flowEnv: production
   images:
     flow:
-      repository: quay.io/fdupont-redhat/nico-flow
-      tag: latest
-    psm:
-      repository: quay.io/fdupont-redhat/nico-psm
-      tag: latest
-    nsm:
-      repository: quay.io/fdupont-redhat/nico-nsm
+      repository: ghcr.io/rh-ecosystem-edge/ncp-dsx-nico-deploy/nico-flow
       tag: latest
   database:
     host: nico-site-pg-primary
@@ -221,12 +236,6 @@ nico-flow:
     certPath: ""
     flow:
       name: flow
-      credentialsSecret: nico-site-pg-pguser-nico
-    psm:
-      name: psm
-      credentialsSecret: nico-site-pg-pguser-nico
-    nsm:
-      name: nsm
       credentialsSecret: nico-site-pg-pguser-nico
   nicoCoreApi:
     url: nico-api:1079
@@ -245,8 +254,6 @@ nico-flow:
       group: cert-manager.io
   vault:
     address: https://vault.nico-system:8200
-    psmTokenSecret: psm-vault-token
-    nsmTokenSecret: nsm-vault-token
   certificate:
     apiIdentity:
       namespace: nico-system
