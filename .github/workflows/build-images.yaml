@@ -3,13 +3,18 @@
 name: Build and Push Images
 
 on:
+  pull_request:
+    paths:
+      - 'docker/ubi/**'
+      - 'helm/vendor/infra-controller'
   push:
     tags: ['v*']
   workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}
+  IMAGE_PREFIX: ghcr.io/${{ github.repository }}
+  PUSH: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
 
 jobs:
   rest-images:
@@ -37,6 +42,7 @@ jobs:
           submodules: true
 
       - name: Log in to ghcr.io
+        if: env.PUSH == 'true'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -46,12 +52,17 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Generate VERSION file
+        run: |
+          cd helm/vendor/infra-controller/rest-api
+          git describe --tags HEAD 2>/dev/null | sed 's/^v//' > VERSION || echo "dev" > VERSION
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: helm/vendor/infra-controller/rest-api
           file: docker/ubi/Dockerfile.${{ matrix.image }}
-          push: true
+          push: ${{ env.PUSH }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: |
@@ -70,9 +81,6 @@ jobs:
           - name: nico-core
             dockerfile: docker/ubi/Dockerfile.nico-core
             context: helm/vendor/infra-controller
-          - name: nico-admin-cli
-            dockerfile: docker/ubi/Dockerfile.nico-admin-cli
-            context: helm/vendor/infra-controller
           - name: nico-nsm
             dockerfile: docker/ubi/Dockerfile.nico-nsm
             context: helm/vendor/infra-controller/rest-api
@@ -83,6 +91,7 @@ jobs:
           submodules: true
 
       - name: Log in to ghcr.io
+        if: env.PUSH == 'true'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -99,6 +108,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Generate VERSION file
+        run: |
+          cd helm/vendor/infra-controller/rest-api
+          git describe --tags HEAD 2>/dev/null | sed 's/^v//' > VERSION || echo "dev" > VERSION
+
       - name: Prepare RHSM secrets
         run: |
           echo "${{ secrets.REDHAT_ORG_ID }}" > /tmp/rhsm_org
@@ -109,7 +123,7 @@ jobs:
         with:
           context: ${{ matrix.image.context }}
           file: ${{ matrix.image.dockerfile }}
-          push: true
+          push: ${{ env.PUSH }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           secret-files: |

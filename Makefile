@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 .PHONY: check-prereqs
-.PHONY: docker-build-ubi docker-push-ubi docker-build-core docker-push-core docker-build-nicocli docker-push-nicocli helm-dep-build helm-lint helm-template
+.PHONY: docker-build docker-push docker-build-ubi docker-push-ubi docker-build-core docker-push-core docker-build-nicocli docker-push-nicocli helm-dep-build helm-lint helm-template
 .PHONY: build-machine-a-tron bootstrap-machine-a-tron machine-a-tron-status
 .PHONY: deploy-prereqs deploy-cloud-infra deploy-cloud
-.PHONY: deploy-site-infra vault-init ensure-ssh-host-key deploy-site deploy-site-agent deploy-flow
+.PHONY: deploy-site-infra vault-init ensure-ssh-host-key deploy-site deploy-site-agent
 .PHONY: deploy-all-cloud patch-keycloak-route bootstrap-org deploy-all-site status undeploy
 .PHONY: reset-dpu-endpoint
 
@@ -16,7 +16,6 @@ UPSTREAM ?= helm/vendor/infra-controller
 NICO_REST_CHART := $(UPSTREAM)/helm/rest/nico-rest
 NICO_CORE_CHART := $(UPSTREAM)/helm
 NICO_SITE_AGENT_CHART := $(UPSTREAM)/helm/rest/nico-rest-site-agent
-NICO_FLOW_CHART := $(UPSTREAM)/helm/charts/nico-flow
 NICO_TEMPORAL_CHART := $(UPSTREAM)/rest-api/temporal-helm/temporal
 
 # Image configuration
@@ -33,7 +32,6 @@ MAT_NAMESPACE ?= nico-system
 # Off by default so `make deploy-site` cannot ship the bypass flags.
 MAT_VALUES := helm/values/nico-core-mat.yaml
 MAT ?=
-MAT_VALUES_FLAG := $(if $(MAT),-f $(MAT_VALUES),)
 
 # Site-config values layered onto nico-core.yaml. The base disables siteConfig
 # (no pools) so `make deploy-site` never silently ships RBAC bypasses; Core
@@ -118,11 +116,20 @@ check-prereqs:
 # Container Images
 # =============================================================================
 
+# Aggregate targets: build/push every image (rest + core + nicocli).
+docker-build: docker-build-ubi docker-build-core docker-build-nicocli
+
+docker-push: docker-push-ubi docker-push-core docker-push-nicocli
+
 docker-build-ubi:
+	@cd $(UPSTREAM)/rest-api && \
+		git describe --tags HEAD 2>/dev/null | sed 's/^v//' > VERSION || echo "dev" > VERSION
 	@for img in nico-rest-api nico-rest-workflow nico-rest-site-manager nico-rest-site-agent \
 		nico-rest-db nico-rest-cert-manager nico-flow nico-psm nico-nsm; do \
 		echo "Building $$img..." && \
 		podman build -t $(IMAGE_REGISTRY)/$$img:$(IMAGE_TAG) \
+			--secret id=rhsm_org,src=$(RHSM_ORG_FILE) \
+			--secret id=rhsm_activationkey,src=$(RHSM_ACTIVATIONKEY_FILE) \
 			-f $(DOCKERFILE_DIR)/Dockerfile.$$img $(UPSTREAM)/rest-api; \
 	done
 
@@ -134,7 +141,7 @@ docker-build-nicocli:
 docker-push-nicocli:
 	podman push $(IMAGE_REGISTRY)/nicocli:$(IMAGE_TAG)
 
-# nico-core/nico-admin-cli build on UBI and need a live RHEL subscription to
+# nico-core builds on UBI and needs a live RHEL subscription to
 # `dnf install rust-toolset` mid-build (see Dockerfile.nico-core) — unlike the
 # plain-Debian machine-a-tron image, there's no way around this. Provide your
 # own RHSM org ID / activation key as plain files (never as --build-arg, which
@@ -149,15 +156,9 @@ docker-build-core:
 		--secret id=rhsm_activationkey,src=$(RHSM_ACTIVATIONKEY_FILE) \
 		-t $(IMAGE_REGISTRY)/nico-core:$(IMAGE_TAG) \
 		-f $(DOCKERFILE_DIR)/Dockerfile.nico-core $(UPSTREAM)
-	podman build \
-		--secret id=rhsm_org,src=$(RHSM_ORG_FILE) \
-		--secret id=rhsm_activationkey,src=$(RHSM_ACTIVATIONKEY_FILE) \
-		-t $(IMAGE_REGISTRY)/nico-admin-cli:$(IMAGE_TAG) \
-		-f $(DOCKERFILE_DIR)/Dockerfile.nico-admin-cli $(UPSTREAM)
 
 docker-push-core:
 	podman push $(IMAGE_REGISTRY)/nico-core:$(IMAGE_TAG)
-	podman push $(IMAGE_REGISTRY)/nico-admin-cli:$(IMAGE_TAG)
 
 docker-push-ubi:
 	@for img in nico-rest-api nico-rest-workflow nico-rest-site-manager nico-rest-site-agent \
@@ -511,12 +512,12 @@ endif
 		--set envConfig.TEMPORAL_SUBSCRIBE_NAMESPACE=$$SITE_ID_VAL \
 		--set bootstrap.enabled=true
 
-deploy-flow:
-	helm upgrade --install -n nico-system nico-flow \
-		$(NICO_FLOW_CHART) --wait --timeout 5m \
-		-f helm/values/nico-core.yaml $(MAT_VALUES_FLAG)
+# nico-flow is deployed as part of the Core umbrella chart (nico-flow.enabled in
+# helm/values/nico-core.yaml, with the remove-flow-namespace kustomize patch), so
+# it is NOT a separate release. A standalone deploy-flow would collide on the
+# nico-system namespace ownership.
 
-deploy-all-site: deploy-site-infra vault-init deploy-site deploy-flow
+deploy-all-site: deploy-site-infra vault-init deploy-site
 
 # =============================================================================
 # CRC (single-node) — overrides for local development on CodeReady Containers
@@ -526,11 +527,11 @@ CRC_VAULT_OVERRIDES := --set vault.server.ha.enabled=false \
 	--set vault.server.standalone.enabled=true \
 	--set-string 'vault.server.standalone.config=listener "tcp" { address = "[::]:8200"\n tls_cert_file = "/vault/userconfig/vault-tls/tls.crt"\n tls_key_file = "/vault/userconfig/vault-tls/tls.key"\n tls_client_ca_file = "/vault/userconfig/vault-tls/ca.crt"\n}\nstorage "file" { path = "/vault/data" }\ndisable_mlock = true'
 
-deploy-cloud-infra-crc: helm-dep-build
-	helm upgrade --install -n nico-rest nico-rest-infra \
-		helm/infra-cloud/ \
-		--create-namespace --wait --timeout 10m \
-		--post-renderer $(POST_RENDERER) --post-renderer-args $(INFRA_CLOUD_KUSTOMIZE)
+# The cloud plane needs no CRC-specific accommodation: every nico-rest workload
+# now runs on restricted-v2 via podSecurityContext: null (PR #4372), so no anyuid
+# grants are required. CRC cloud == production cloud.
+deploy-cloud-infra-crc: deploy-cloud-infra
+deploy-all-cloud-crc: deploy-all-cloud
 
 deploy-site-infra-crc: helm-dep-build
 	helm upgrade --install -n nico-system nico-site-infra \
@@ -538,8 +539,7 @@ deploy-site-infra-crc: helm-dep-build
 		--create-namespace --wait --timeout 15m \
 		$(CRC_VAULT_OVERRIDES)
 
-deploy-all-cloud-crc: deploy-prereqs deploy-cloud-infra-crc deploy-cloud
-deploy-all-site-crc: deploy-site-infra-crc vault-init deploy-site deploy-flow
+deploy-all-site-crc: deploy-site-infra-crc vault-init deploy-site
 
 # =============================================================================
 # Status and Cleanup

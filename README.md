@@ -226,7 +226,7 @@ UBI 10-based images built by Konflux. Dockerfiles in `docker/ubi/`.
 
 ```bash
 make docker-build-ubi    # REST images
-make docker-build-core   # Core + admin-cli images
+make docker-build-core   # Core image (bundles nico-admin-cli binary)
 ```
 
 ## CLI Tools
