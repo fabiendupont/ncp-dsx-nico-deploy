@@ -127,8 +127,26 @@ nico-bmc-proxy:
     usernameKey: user
 nico-dhcp:
   enabled: true
-  # Drop the chart's default SYS_PTRACE capability (see nico-api).
-  containerSecurityContext: null
+  # nico-dhcp is the ONE Core service that cannot run on restricted-v2: kea must
+  # bind UDP port 67 (privileged, <1024) and cannot move ports the way nico-dns
+  # did (53 -> 5353). With the chart's `containerSecurityContext: null` (drop ALL
+  # caps) kea logs DHCPSRV_OPEN_SOCKET_FAIL / NO_SOCKETS_OPEN and becomes a
+  # zombie. It therefore needs NET_BIND_SERVICE AND must run as uid 0 for the cap
+  # to be *effective*: on modern CRI-O (post CVE-2022-27652) an added capability
+  # is no longer promoted to the ambient set, so a non-root process gets it only
+  # in CapBnd, never CapEff (verified on OCP 4.22: uid 1001 => CapEff=0; uid 0 =>
+  # CapEff=NET_BIND_SERVICE). This pairs with the custom SCC in
+  # helm/openshift/nico-dhcp-scc.yaml, which `make deploy-site` applies. This is
+  # the documented exception to the repo's "values-driven, no custom SCC" rule
+  # (every other service runs on restricted-v2 via `*SecurityContext: null`).
+  # A cleaner non-root posture is possible via file capabilities on the kea
+  # binary (setcap cap_net_bind_service=ep) in the image; tracked separately.
+  containerSecurityContext:
+    runAsUser: 0
+    allowPrivilegeEscalation: true
+    capabilities:
+      drop: [ALL]
+      add: [NET_BIND_SERVICE]
   config:
     kea:
       # Chart default is a Debian path; our UBI image installs kea from
