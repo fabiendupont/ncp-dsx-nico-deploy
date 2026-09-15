@@ -19,7 +19,24 @@
 # real site's addressing before onboarding actual machines.
 # =============================================================================
 
+# =============================================================================
+# MetalLB LoadBalancer VIPs for the site-facing Core services.
+#
+# The production network model fronts these services with MetalLB VIPs
+# (see CLAUDE.md "Networking / MetalLB" and project OOB network model). Each
+# externalService.enabled=true renders a `<svc>-external` LoadBalancer Service;
+# the VIP is PINNED via metallb.universe.tf/loadBalancerIPs and MUST fall inside
+# an infra-site IPAddressPool range (helm/infra-site values.metallb.addressPools,
+# default 192.0.2.0/24).
+#
+# The addresses below are RFC 5737 TEST-NET-1 PLACEHOLDERS — replace with the
+# real site VIPs (and keep them inside the pool) before onboarding hardware.
+# =============================================================================
 nico-api:
+  externalService:
+    enabled: true
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "192.0.2.10"
   siteConfig:
     enabled: true
     nicoApiSiteConfig: |
@@ -81,3 +98,50 @@ nico-api:
       [pools.fnn-asn]
       type = "integer"
       ranges = [{ start = "4200000000", end = "4200000254" }]
+
+# -----------------------------------------------------------------------------
+# Site-facing Core service VIPs (see the MetalLB header at the top of this file).
+# VIPs are RFC 5737 placeholders inside the infra-site 192.0.2.0/24 pool.
+# -----------------------------------------------------------------------------
+nico-dhcp:
+  externalService:
+    enabled: true
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "192.0.2.11"
+  config:
+    kea:
+      hookParameters:
+        # DNS advertised to machines (DHCP option 6). Production: the nico-dns
+        # VIP (192.0.2.12 below), reachable from the provisioning segment via the
+        # fabric — NOT a ClusterIP (unreachable off-cluster). Overrides the base
+        # placeholder in nico-core.yaml.
+        nameservers: "192.0.2.12"
+        # nico-ntp is disabled; reuse the nico-dns VIP — it only needs to parse
+        # as valid IPv4, nothing depends on a real NTP server.
+        ntpServer: "192.0.2.12"
+        # UEFI HTTPClient boot URL host handed to worker machines. Production:
+        # the nico-pxe VIP (192.0.2.13 below), reachable on the provisioning
+        # segment. crates/dhcp/src/machine.rs builds
+        # http://{provisioningServer}:8080/public/blobs/internal/<arch>/ipxe.efi.
+        provisioningServer: "192.0.2.13"
+
+nico-dns:
+  # nico-dns is a StatefulSet: its chart emits a paired UDP+TCP LoadBalancer per
+  # pod ordinal (sharing one VIP via allow-shared-ip) and pins the VIP through
+  # perPodAnnotations[ordinal], NOT a flat annotations map. One entry per replica.
+  externalService:
+    enabled: true
+    perPodAnnotations:
+      - metallb.universe.tf/loadBalancerIPs: "192.0.2.12"
+
+nico-pxe:
+  externalService:
+    enabled: true
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "192.0.2.13"
+
+nico-ssh-console-rs:
+  externalService:
+    enabled: true
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "192.0.2.14"

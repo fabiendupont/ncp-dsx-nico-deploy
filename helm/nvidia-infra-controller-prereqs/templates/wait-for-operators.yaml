@@ -6,7 +6,7 @@ Waits for operator CRDs to be available before Crunchy PostgreSQL
 clusters and cert-manager Certificates can be created.
 */}}
 
-{{- if or .Values.certManager.enabled .Values.crunchyPostgres.enabled .Values.externalSecrets.enabled }}
+{{- if or .Values.certManager.enabled .Values.crunchyPostgres.enabled .Values.externalSecrets.enabled .Values.metallb.enabled }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -100,6 +100,30 @@ spec:
                 managementState: Managed
               EOCFG
               echo "ExternalSecretsConfig created — ESO controller will deploy"
+              {{- end }}
+              {{- if .Values.metallb.enabled }}
+              echo "Waiting for MetalLB CRDs..."
+              until oc get crd metallbs.metallb.io > /dev/null 2>&1; do
+                sleep 5
+              done
+              oc wait --for=condition=Established crd metallbs.metallb.io --timeout=120s
+              oc wait --for=condition=Established crd ipaddresspools.metallb.io --timeout=120s
+              echo "MetalLB CRDs available"
+              echo "Creating MetalLB instance operand..."
+              cat <<EOMLB | oc apply -f -
+              apiVersion: metallb.io/v1beta1
+              kind: MetalLB
+              metadata:
+                name: metallb
+                namespace: {{ .Values.metallb.namespace }}
+              spec: {}
+              EOMLB
+              echo "Waiting for MetalLB controller (webhook) to be ready..."
+              until oc -n {{ .Values.metallb.namespace }} get deploy/controller > /dev/null 2>&1; do
+                sleep 5
+              done
+              oc -n {{ .Values.metallb.namespace }} rollout status deploy/controller --timeout=180s
+              echo "MetalLB instance ready — pools/advertisements come from infra-site"
               {{- end }}
               echo "Waiting for RHBK Keycloak CRDs..."
               until oc get crd keycloaks.k8s.keycloak.org > /dev/null 2>&1; do

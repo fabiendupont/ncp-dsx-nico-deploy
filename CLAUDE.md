@@ -96,6 +96,43 @@ nico-bootstrap-issuer (self-signed)
 | Crunchy PostgreSQL | `certified-operators` | Managed PostgreSQL clusters |
 | RHBK (Keycloak) | `redhat-operators` | Identity and access management |
 | External Secrets Operator | `redhat-operators` | Cross-namespace secret sync |
+| MetalLB | `redhat-operators` | LoadBalancer VIPs for site Core services |
+
+## Networking / MetalLB
+
+The production network model fronts the site-facing Core services with **MetalLB
+LoadBalancer VIPs** — without them the Services stay `<pending>` and the site is
+unreachable. Split across the layers per the repo's operator-vs-operand pattern:
+
+- **Operator** (`helm/nvidia-infra-controller-prereqs`, `values.metallb`):
+  Namespace + OperatorGroup + Subscription (`metallb-operator`, channel `stable`,
+  `redhat-operators`). The `wait-for-operators` hook creates the singleton
+  `MetalLB` instance CR once the CRDs are Established and waits for the
+  `controller` deployment (webhook) so the infra-site operands validate.
+- **Network config** (`helm/infra-site`, `values.metallb`): `IPAddressPool`(s),
+  and either `L2Advertisement` (`mode: l2`) or `BGPPeer` + `BGPAdvertisement`
+  (`mode: bgp`). Address ranges are RFC 5737 (`192.0.2.0/24`) placeholders —
+  replace per site.
+- **VIP pinning** (`helm/values/nico-core-site.yaml`): each service enables
+  `externalService` and pins its VIP via
+  `metallb.universe.tf/loadBalancerIPs` (nico-dns uses `perPodAnnotations`
+  instead, one entry per replica; nico-pxe/nico-dns emit multiple Services that
+  share one VIP via `allow-shared-ip`). Every pinned VIP MUST fall inside a pool
+  range. Default placeholders: nico-api `.10`, nico-dhcp `.11`, nico-dns `.12`,
+  nico-pxe `.13`, nico-ssh-console `.14` (in `192.0.2.0/24`). nico-dhcp's Kea
+  boot hook `provisioningServer` points at the nico-pxe VIP so the UEFI
+  HTTPClient boot URL is reachable on the provisioning segment.
+
+**Return-path requirement (load-bearing).** Under OCP OVN shared-gateway mode,
+Service DNAT fires for traffic ingressing OVN-managed interfaces (`br-ex`,
+pods) but NOT a raw secondary bridge. A VIP is reachable from an off-cluster
+client only if OVN's gateway router can RETURN to that client's subnet — and OVN
+GR only learns the node's DEFAULT gateway (+ connected). In production this is
+automatic because **the node's default gateway IS the routing fabric/ToR** that
+MetalLB BGP-peers with, so VIP replies flow back symmetrically. Deployments
+whose node default gateway is NOT the fabric will see forward-only VIP traffic
+(SYN in, reply sent to the wrong next-hop). Verified end-to-end on the e2e SNO
+via an external FRR ToR (spike, 2026-09-17).
 
 ## Directory Structure
 
