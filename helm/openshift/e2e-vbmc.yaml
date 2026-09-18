@@ -184,6 +184,17 @@ data:
     tls_cert = "/etc/vbmc-rs/tls/tls.crt"
     tls_key  = "/etc/vbmc-rs/tls/tls.key"
 
+    # Report a Redfish ServiceRoot vendor NICo recognizes. NICo's site-explorer
+    # (via libredfish) rejects an unrecognized ServiceRoot.Vendor with
+    # NICO-SITEEXPLORER-122 before exploration begins; the virtual-BMC emulator
+    # identities "sushy"/"redvirt"/"contoso" map to RedfishVendor::Sushy, which
+    # NICo first-classes as "a development emulator without an AccountService"
+    # (BMC credential rotation becomes a no-op — matching vbmc-rs with auth
+    # disabled). vbmc-rs defaults this to "vbmc-rs"; override to "redvirt" so the
+    # KubeVirt worker's virtual BMC is discoverable.
+    [defaults]
+    vendor = "redvirt"
+
     [systems.nico-worker-0]
     name = "nico-worker-0"
     namespace = "nico-system"

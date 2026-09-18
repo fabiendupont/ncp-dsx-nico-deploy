@@ -190,8 +190,15 @@ All images use UBI 10 base, built by Konflux. Dockerfiles in `docker/ubi/`.
 | nico-nsm | ubi10/ubi-minimal | nsm + scripts + sshpass |
 | nico-core | ubi10/ubi-minimal | carbide-api, dns, bmc-proxy |
 | nicocli | ubi10/ubi-micro | nicocli (REST API CLI, from OpenAPI) |
+| nico-admin-cli | ubi10/ubi-micro | nico-admin-cli (Core gRPC admin CLI; binary copied from nico-core image) |
 
 Local build: `make docker-build` (requires submodule checkout)
+
+The `nico-admin-cli` image repackages the CLI binary already built into
+`nico-core`, so it needs no source build — it takes the binary from a Core image
+via the `NICO_CORE_IMAGE` build-arg (default the published `nico-core`). Admins
+run it from a workstation over mTLS against the Core gRPC API exposed by the
+`infra-site` passthrough Route (`adminApiRoute`); see README (nico-admin-cli).
 
 ## Key Makefile Targets
 

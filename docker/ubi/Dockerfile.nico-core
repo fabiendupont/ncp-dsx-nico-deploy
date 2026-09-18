@@ -123,6 +123,16 @@ COPY --from=builder /app/bin/libdhcp.so /usr/lib64/kea/hooks/libdhcp.so
 COPY --from=builder /workspace/crates/api-db/migrations/ /opt/carbide/migrations/
 COPY --from=builder /workspace/crates/api/casbin-policy.csv /opt/carbide/casbin-policy.csv
 
+# PXE server assets (upstream release-container parity). carbide-pxe loads its
+# Tera templates from CARBIDE_PXE_TEMPLATE_DIRECTORY (default /opt/carbide/pxe/
+# templates) via Tera::new("{dir}/**/*"); without them every /api/v0/pxe/boot
+# render 500s with "Template 'pxe' not found". scout-firmware-scripts backs the
+# bmc_fw_update template flow. Both are staged by upstream's
+# dev/docker/Dockerfile.release-container-x86_64 (COPY pxe/templates/*,
+# pxe/scout-firmware-scripts/); mirror that here.
+COPY --from=builder /workspace/pxe/templates/ /opt/carbide/pxe/templates/
+COPY --from=builder /workspace/pxe/scout-firmware-scripts/ /opt/carbide/scout-firmware-scripts/
+
 RUN ln -sf /opt/carbide/nico-admin-cli /opt/carbide/carbide-admin-cli && \
     ln -sf /opt/carbide/nico-admin-cli /opt/carbide/forge-admin-cli
 

@@ -11,25 +11,69 @@ resources:
   # - machine-a-tron.yaml
 
 patches:
-  # Fix wrong CLI flag guessed by the chart's binary-detection script:
-  # upstream chart renders --nico-url but the binary expects --api-uri.
-  # Pending fix in NVIDIA/infra-controller (not yet in fix/openshift-compat).
+  # Remove nico-flow Namespace resource (conflicts with Helm ownership)
+  - path: patches/remove-flow-namespace.yaml
+    target:
+      kind: Namespace
+      name: nico-system
+
+  # Core migration: pg_isready init, backoffLimit, fix secret key
+  - path: patches/fix-core-migration.yaml
+    target:
+      kind: Job
+      name: nico-api-migrate
+  - path: patches/fix-core-secret-keys.yaml
+    target:
+      kind: Job
+      name: nico-api-migrate
+
+  # Core API deployment: fix Crunchy secret key (user not username)
+  - path: patches/fix-core-deployment-keys.yaml
+    target:
+      kind: Deployment
+      name: nico-api
+
+  # Make nico-roots volume optional (stub for dev)
+  - path: patches/fix-core-optional-volumes.yaml
+    target:
+      kind: Deployment
+      name: nico-api
+
+  # BMC proxy: fix Crunchy secret key (user not username)
+  - path: patches/fix-bmc-proxy-secret-keys.yaml
+    target:
+      kind: Deployment
+      name: nico-bmc-proxy
+
+  # Flow deployment: fix Crunchy secret key (user not username)
+  - path: patches/fix-flow-secret-keys.yaml
+    target:
+      kind: Deployment
+      name: flow
+
+  # Fix wrong CLI flag guessed by the chart's binary-detection script
   - path: patches/fix-dns-flag-name.yaml
     target:
       kind: StatefulSet
       name: nico-dns
 
+  # Expose DNS on Service port 53 -> targetPort 5353. nameservers advertises
+  # this Service IP via DHCP option 6 and clients query it on :53, but nico-dns
+  # binds :5353 (can't bind privileged :53, see nico-core.yaml). The chart's
+  # service template omits targetPort, so this is a JSON patch, not a value.
+  - path: patches/fix-dns-service-port.yaml
+    target:
+      kind: Service
+      name: nico-dns
+
+  # unbound (.forge resolver): retarget containerPorts + probes 53 -> 5353 so it
+  # binds an unprivileged port and runs as a plain arbitrary UID (no cap/SCC).
+  # The chart's Services target the ports by name, so no Service patch is needed.
+  - path: patches/fix-unbound-port.yaml
+    target:
+      kind: Deployment
+      name: nico-unbound
+
   # NOTE: the nico-bmc OVN CUDN attachment (patches/add-api-oob-network.yaml)
   # is e2e-only (the CUDN and vbmc-rs only exist in the libvirt e2e environment).
   # It is applied via `make deploy-e2e-net` in Makefile.e2e, not here.
-
-  # Patches removed — now covered by fix/openshift-compatibility fork (PR #4372):
-  #   fix-core-secret-keys.yaml       → nico-api.database.usernameKey: user
-  #   fix-core-deployment-keys.yaml   → nico-api.database.usernameKey: user
-  #   fix-core-migration.yaml         → nico-api.migration.pgIsReadyInit.enabled: true
-  #   fix-core-optional-volumes.yaml  → nico-api.siteConfig guard in chart template
-  #   fix-bmc-proxy-secret-keys.yaml  → nico-bmc-proxy.database.usernameKey: user
-  #   fix-flow-secret-keys.yaml       → nico-flow.database.usernameKey: user
-  #   remove-flow-namespace.yaml      → nico-flow.createNamespace: false
-  #   fix-dns-service-port.yaml       → nico-dns.service.targetPort: 5353
-  #   fix-unbound-port.yaml           → nico-unbound.containerPort: 5353
