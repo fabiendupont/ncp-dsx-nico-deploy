@@ -52,6 +52,27 @@
 # real HostInband DHCP IP, so the production discovery-source check passes and
 # no insecure-discovery / permissive auth is required.
 nico-api:
+  # Serving-cert SAN for the passthrough adminApiRoute (infra-site adminApiRoute,
+  # host nico-api-grpc-nico-system.apps.sno.nico.test on this e2e SNO). Replaces
+  # the apps.example.com PLACEHOLDER in nico-core-site.yaml (Helm replaces a list,
+  # so the last -f wins). Required so nico-admin-cli — which verifies the server
+  # against the URL host with no server-name override (crates/admin-cli) — can
+  # reach Core over the real Route with TLS verification instead of a port-forward
+  # + --add-host shim. cert-manager reissues nico-api-certificate with this SAN on
+  # the next `make deploy-site E2E=1`.
+  certificate:
+    # This list REPLACES the site profile's nico-api.certificate.extraDnsNames
+    # (Helm replaces lists; E2E is layered last), so it must carry BOTH the
+    # adminApiRoute host used by nico-admin-cli AND carbide-api.forge — the
+    # upstream compile-time server_uri a REAL Scout uses for its DiscoverMachine
+    # mTLS callback. The worker resolves carbide-api.forge -> the nico-api VIP
+    # (192.0.2.10) via the unbound `.forge` zone (see nico-core-site.yaml unbound:
+    # block); Scout verifies the serving cert against that host with no
+    # server-name override, so the SAN must be the hostname, not the raw VIP IP.
+    # No CARBIDE_API_URL env override and no IP SAN are needed — defaults + DNS.
+    extraDnsNames:
+      - nico-api-grpc-nico-system.apps.sno.nico.test
+      - carbide-api.forge
   siteConfig:
     enabled: true
     nicoApiSiteConfig: |
@@ -136,3 +157,45 @@ nico-api:
       [pools.fnn-asn]
       type = "integer"
       ranges = [{ start = "4200000000", end = "4200000254" }]
+
+# =============================================================================
+# Seed the discovery boot artifacts into nico-pxe (Phase 6, Scout Posture 3).
+#
+# nico-pxe is a STATELESS boot server: it serves whatever is in its blob tree at
+# /public/blobs/internal/<arch>/<blob> and has NO upload API (the OsImage API is
+# a different layer — the OS installed on an ALLOCATED machine, not the discovery
+# ramdisk). In Kubernetes that tree is an in-pod emptyDir, so the chart-sanctioned
+# way to populate it is `bootArtifactContainers`: each entry becomes an init
+# container that mounts the shared `boot-artifacts` emptyDir at
+# /forge-boot-artifacts/blobs/internal and copies its payload in; the main
+# nico-pxe container mounts the same emptyDir at the same path and serves the
+# union (see nico-pxe chart deployment.yaml + docs/bootable_artifacts.md).
+#
+# The carrier image holds the NVIDIA-free Posture 3 blobs (ipxe.efi, scout.efi,
+# scout.squashfs) built by hack/scout-e2e/build-scout.sh, one dir per arch at the
+# image root. The init container copies /x86_64 -> the served tree, so the worker
+# UEFI-HTTP-boots http://192.0.2.13:8080/public/blobs/internal/x86_64/ipxe.efi
+# (the nico-dhcp boot URL from nico-core-site.yaml). imagePullPolicy: Always so a
+# rebuilt-and-repushed :latest is re-pulled on every pod restart (the image is the
+# source of truth; the emptyDir is repopulated each pod start).
+#
+# Local-testing carrier: quay.io/fdupont-redhat/nico-e2e-boot-artifacts (public);
+# current :latest == sha256:be5a975860f76629cdbae011161538067753f0a415300113666c9d0a45bd3563
+# (ubi-micro base). Add an aarch64 copy once those blobs are built natively.
+nico-pxe:
+  bootArtifactContainers:
+    - name: seed-scout-blobs
+      repository: quay.io/fdupont-redhat/nico-e2e-boot-artifacts
+      tag: latest
+      imagePullPolicy: Always
+      command: ["sh", "-c", "cp -r /x86_64 /forge-boot-artifacts/blobs/internal"]
+  # NOTE: no CARBIDE_*_URL env overrides here. nico-pxe keeps its upstream default
+  # URLs (http://carbide-pxe.forge, https://carbide-api.forge — crates/pxe/src/
+  # config.rs) and the scout.efi loader keeps its baked-in http://carbide-static-
+  # pxe.forge squashfs URL. All three `.forge` names resolve to the nico-pxe /
+  # nico-api MetalLB VIPs through the unbound `.forge` zone the worker uses as its
+  # DHCP-advertised resolver (see nico-core-site.yaml `unbound:` block +
+  # nico-dhcp option-6 nameservers). This is the upstream-faithful path: pinning
+  # raw VIP:port here would only cover the env-driven fetch and still leave the
+  # loader's hardcoded carbide-static-pxe.forge squashfs fetch unresolved.
+  # nico-pxe-external-80 already serves :80 on the VIP for the portless defaults.
