@@ -1,5 +1,31 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 Red Hat, Inc. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+# =============================================================================
+# Phase 7: Add SNO cluster hostnames to unbound so the worker can resolve
+# api-int.sno.nico.test (MCS) and api.sno.nico.test (API server) from the
+# provisioning segment. The worker.ign pointer ignition fetches the full worker
+# config from https://api-int.sno.nico.test:22623/config/worker; without this
+# entry the curl inside coreos-installer fails with NXDOMAIN and the ignition
+# config is never applied. localData here EXTENDS (does not replace) the site
+# profile's localData list because Helm merges lists positionally; but since the
+# site profile uses indexed keys and this is a separate values layer, adding new
+# entries here appends to the rendered unbound localData configmap.
+unbound:
+  localData:
+    - name: carbide-static-pxe.forge
+      addresses: ["192.0.2.13"]
+    - name: carbide-pxe.forge
+      addresses: ["192.0.2.13"]
+    - name: carbide-api.forge
+      addresses: ["192.0.2.10"]
+    # SNO cluster endpoints — needed for the RHCOS worker ignition flow.
+    # The pointer worker.ign fetches its full config from the MCS at :22623.
+    # The installed node's kubelet then communicates with the API at :6443.
+    - name: api-int.sno.nico.test
+      addresses: ["192.168.130.10"]
+    - name: api.sno.nico.test
+      addresses: ["192.168.130.10"]
 #
 # E2E overlay for the NICo + KubeVirt + vbmc-rs + Metal3 flow on self-managed
 # SNO (see e2e-nico-kubevirt-sno.md). Layered ON TOP of the site profile:
@@ -199,3 +225,14 @@ nico-pxe:
   # raw VIP:port here would only cover the env-driven fetch and still leave the
   # loader's hardcoded carbide-static-pxe.forge squashfs fetch unresolved.
   # nico-pxe-external-80 already serves :80 on the VIP for the portless defaults.
+    - name: download-rhcos-rootfs
+      repository: docker.io/alpine
+      tag: latest
+      imagePullPolicy: IfNotPresent
+      command:
+        - sh
+        - -c
+        - |
+          wget -q -O /forge-boot-artifacts/blobs/internal/x86_64/rhcos-live-rootfs.x86_64.img \
+            https://rhcos.mirror.openshift.com/art/storage/prod/streams/rhel-9.8/builds/9.8.20260715-1/x86_64/rhcos-9.8.20260715-1-live-rootfs.x86_64.img
+          echo "rootfs downloaded: $(du -h /forge-boot-artifacts/blobs/internal/x86_64/rhcos-live-rootfs.x86_64.img)"

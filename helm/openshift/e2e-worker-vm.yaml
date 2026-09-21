@@ -112,6 +112,15 @@ spec:
               macAddress: "02:00:00:aa:cc:01"
               model: virtio
               bridge: {}
+            # Phase 7: machine-network NIC so the worker can reach the OCP
+            # API/MCS (192.168.130.0/24) after RHCOS install and reboot.
+            # nftables on the SNO node allows port 22623/6443 from sources
+            # on the machine network; the provisioning NIC (192.168.253.0/24)
+            # is blocked. This NIC gets a DHCP IP from the libvirt nico-e2e
+            # dnsmasq directly (via the machine-net0 bridge over enp8s0).
+            - name: machine
+              model: virtio
+              bridge: {}
         resources:
           requests:
             memory: 8Gi
@@ -119,6 +128,9 @@ spec:
         - name: prov
           multus:
             networkName: nico-system/nico-prov-vm
+        - name: machine
+          multus:
+            networkName: nico-system/nico-machine-net
       volumes:
         - name: rootdisk
           dataVolume:
