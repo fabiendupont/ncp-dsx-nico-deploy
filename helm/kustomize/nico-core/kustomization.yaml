@@ -74,6 +74,10 @@ patches:
       kind: Deployment
       name: nico-unbound
 
-  # NOTE: the nico-bmc OVN CUDN attachment (patches/add-api-oob-network.yaml)
-  # is e2e-only (the CUDN and vbmc-rs only exist in the libvirt e2e environment).
-  # It is applied via `make deploy-e2e-net` in Makefile.e2e, not here.
+  # Attach nico-api to the nico-bmc OVN CUDN so the site-explorer can reach
+  # BMC endpoints (vbmc-rs) directly on the BMC L2 (192.168.2.0/24).
+  # The upstream core chart has no mechanism for secondary network attachments.
+  - path: patches/add-api-oob-network.yaml
+    target:
+      kind: Deployment
+      name: nico-api

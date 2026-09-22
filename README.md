@@ -474,7 +474,7 @@ openssl req -x509 -new -key nico-admin-ca.key -sha256 -days 3650 \
 # 2. Deploy Core with the site overlay, injecting the CA PUBLIC cert from file:
 #    (helm/values/nico-core-site.yaml sets auth.additionalIssuerCns=[nico-admin-ca]
 #    and leaves adminRootCertPem empty for exactly this --set-file injection.)
-helm upgrade --install nico-core <chart> \
+helm upgrade --install nico-core <chart> -n nico-system \
   -f helm/values/nico-core.yaml -f helm/values/nico-core-site.yaml \
   --set-file nico-api.siteConfig.adminRootCertPem=nico-admin-ca.crt
 ```

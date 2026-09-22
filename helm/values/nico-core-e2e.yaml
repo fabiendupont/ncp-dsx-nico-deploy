@@ -7,10 +7,10 @@
 # provisioning segment. The worker.ign pointer ignition fetches the full worker
 # config from https://api-int.sno.nico.test:22623/config/worker; without this
 # entry the curl inside coreos-installer fails with NXDOMAIN and the ignition
-# config is never applied. localData here EXTENDS (does not replace) the site
-# profile's localData list because Helm merges lists positionally; but since the
-# site profile uses indexed keys and this is a separate values layer, adding new
-# entries here appends to the rendered unbound localData configmap.
+# config is never applied. localData here REPLACES the site profile's localData
+# list (Helm replaces lists entirely when layering values files; it does not
+# append). This list must carry all required entries including those from the
+# site profile.
 unbound:
   localData:
     - name: carbide-static-pxe.forge
@@ -78,6 +78,11 @@ unbound:
 # real HostInband DHCP IP, so the production discovery-source check passes and
 # no insecure-discovery / permissive auth is required.
 nico-api:
+  # Enable the passthrough adminApiRoute so nico-admin-cli can reach Core gRPC
+  # from outside the cluster without a port-forward.
+  adminApiRoute:
+    enabled: true
+    host: nico-api-grpc-nico-system.apps.sno.nico.test
   # Serving-cert SAN for the passthrough adminApiRoute (infra-site adminApiRoute,
   # host nico-api-grpc-nico-system.apps.sno.nico.test on this e2e SNO). Replaces
   # the apps.example.com PLACEHOLDER in nico-core-site.yaml (Helm replaces a list,
