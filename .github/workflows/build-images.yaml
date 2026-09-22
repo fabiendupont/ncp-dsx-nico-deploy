@@ -7,6 +7,7 @@ on:
     paths:
       - 'docker/ubi/**'
       - 'helm/vendor/infra-controller'
+      - '.github/workflows/build-images.yaml'
   push:
     tags: ['v*']
   workflow_dispatch:
@@ -120,7 +121,7 @@ jobs:
       - name: Generate VERSION file
         run: |
           cd helm/vendor/infra-controller/rest-api
-          git describe --tags HEAD 2>/dev/null | sed 's/^v//' > VERSION || echo "dev" > VERSION
+          git describe --tags HEAD 2>/dev/null | sed 's/^v//' | grep -v '^$' > VERSION || echo "dev" > VERSION; [ -s VERSION ] || echo "dev" > VERSION
 
       - name: Prepare RHSM secrets
         run: |

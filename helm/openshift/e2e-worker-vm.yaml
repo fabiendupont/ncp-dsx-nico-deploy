@@ -37,23 +37,6 @@
 # Applied by `make deploy-site E2E=1` (idempotent) alongside the provisioning
 # net and relay.
 ---
-# CDI-on-hostpath requirement. The CNV-bundled hostpath provisioner is
-# node-local (topology-constrained), but its default StorageClass `hostpath-csi`
-# uses volumeBindingMode: Immediate. CDI's blank-disk populator then deadlocks:
-# the importer pod can't schedule until the prime PVC binds, and the provisioner
-# won't bind until a consumer selects the node. WaitForFirstConsumer breaks the
-# cycle — the scheduler places the importer pod first, which sets the selected
-# node and lets the provisioner bind. The worker DataVolume below uses this SC.
-apiVersion: storage.k8s.io/v1
-kind: StorageClass
-metadata:
-  name: hostpath-csi-wffc
-provisioner: kubevirt.io.hostpath-provisioner
-reclaimPolicy: Delete
-volumeBindingMode: WaitForFirstConsumer
-parameters:
-  storagePool: local
----
 apiVersion: kubevirt.io/v1
 kind: VirtualMachine
 metadata:
@@ -68,12 +51,11 @@ spec:
     - metadata:
         name: nico-worker-0-root
       spec:
-        # Blank disk: RHCOS is PXE-installed onto it in Phase 7. Sparse on the
-        # hostpath provisioner, so it consumes almost nothing until written.
+        # Blank disk: RHCOS is PXE-installed onto it in Phase 7.
         source:
           blank: {}
         storage:
-          storageClassName: hostpath-csi-wffc
+          storageClassName: lvms-vg1
           accessModes:
             - ReadWriteOnce
           resources:

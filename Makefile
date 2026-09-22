@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 .PHONY: check-prereqs
-.PHONY: docker-build docker-push docker-build-ubi docker-push-ubi docker-build-core docker-push-core docker-build-nicocli docker-push-nicocli helm-dep-build helm-lint helm-template
+.PHONY: docker-build docker-push docker-build-ubi docker-push-ubi docker-build-core docker-push-core docker-build-nicocli docker-push-nicocli docker-build-unbound docker-push-unbound helm-dep-build helm-lint helm-template
 .PHONY: build-machine-a-tron bootstrap-machine-a-tron machine-a-tron-status
 .PHONY: deploy-prereqs deploy-cloud-infra deploy-cloud
 .PHONY: deploy-site-infra vault-init ensure-ssh-host-key deploy-site deploy-site-agent deploy-e2e-net
@@ -17,6 +17,12 @@ NICO_REST_CHART := $(UPSTREAM)/helm/rest/nico-rest
 NICO_CORE_CHART := $(UPSTREAM)/helm
 NICO_SITE_AGENT_CHART := $(UPSTREAM)/helm/rest/nico-rest-site-agent
 NICO_TEMPORAL_CHART := $(UPSTREAM)/rest-api/temporal-helm/temporal
+
+# RMS (rack-manager) upstream chart, vendored as a submodule.
+# Requires `git submodule update --init helm/vendor/nv-rms` before use.
+# Override RMS_UPSTREAM if the submodule is at a different path.
+RMS_UPSTREAM ?= helm/vendor/nv-rms
+RMS_CHART := $(RMS_UPSTREAM)/helm
 
 # Image configuration
 IMAGE_REGISTRY ?= ghcr.io/rh-ecosystem-edge
@@ -37,6 +43,9 @@ CLOUD_IMAGE_OVERRIDE := $(if $(DEPLOY_IMAGE_REPO),--set global.image.repository=
 # DEPLOY_IMAGE_REPO to both explicit per-image paths (<repo>/nico-core, <repo>/
 # nico-flow). PSM/NSM were unbundled from the Flow chart upstream — not deployed.
 SITE_IMAGE_OVERRIDE := $(if $(DEPLOY_IMAGE_REPO),--set global.image.repository=$(DEPLOY_IMAGE_REPO)/nico-core --set global.image.pullPolicy=Always --set nico-flow.images.flow.repository=$(DEPLOY_IMAGE_REPO)/nico-flow,)
+# RMS selects its image via apiServer.image.repository (not global); map
+# DEPLOY_IMAGE_REPO to that explicit path.
+RMS_IMAGE_OVERRIDE := $(if $(DEPLOY_IMAGE_REPO),--set apiServer.image.repository=$(DEPLOY_IMAGE_REPO)/rms-api --set global.image.pullPolicy=Always,)
 
 # Namespace the machine-a-tron BuildConfig/ImageStream/Deployment live in.
 MAT_NAMESPACE ?= nico-system
@@ -57,6 +66,9 @@ MAT ?=
 SITE_VALUES ?= helm/values/nico-core-site.yaml
 SITE_CONFIG_FLAG := $(if $(MAT),-f $(MAT_VALUES),-f $(SITE_VALUES))
 
+# RMS (rack-manager) values override, deployed in the site profile (nico-system).
+RMS_VALUES := helm/values/rms.yaml
+
 # E2E overlay (NICo + KubeVirt + vbmc-rs + Metal3, see e2e-nico-kubevirt-sno.md).
 # ADDITIVE on top of the site profile (unlike MAT, which swaps it): stands up the
 # node-as-fabric provisioning L2 + a hostNetwork DHCP relay so kea receives
@@ -68,6 +80,14 @@ SITE_CONFIG_FLAG := $(if $(MAT),-f $(MAT_VALUES),-f $(SITE_VALUES))
 E2E_VALUES := helm/values/nico-core-e2e.yaml
 E2E ?=
 E2E_CONFIG_FLAG := $(if $(E2E),-f $(E2E_VALUES),)
+# When E2E=1, inject the nico-admin-ca public cert into nico-api's admin client
+# trust store (adminRootCertPem → admin_root_cafile_path). Without this the
+# nico-admin-cli gets BadCertificate on every call. The cert is extracted at
+# make-time from the cluster; the Makefile silently skips if the secret doesn't
+# exist yet (first deploy before vault-init).
+_ADMIN_CA_CERT := $(shell oc get secret nico-admin-ca-secret -n nico-system \
+  -o jsonpath='{.data.tls\.crt}' 2>/dev/null | base64 -d > /tmp/nico-admin-ca.crt 2>/dev/null && echo /tmp/nico-admin-ca.crt)
+E2E_ADMIN_ROOT_FLAG := $(if $(and $(E2E),$(_ADMIN_CA_CERT)),--set-file nico-api.siteConfig.adminRootCertPem=$(_ADMIN_CA_CERT),)
 NICO_DHCP_SCC := helm/openshift/nico-dhcp-scc.yaml
 # E2E provisioning fabric manifests. Production-faithful model: the nmstate
 # operator + a node L2 UPLINK bridge (nicoprov0, no node IP) that cables the
@@ -83,6 +103,13 @@ E2E_PROV_NET := helm/openshift/e2e-provisioning-net.yaml
 # VIP/provisioning traffic to foreign subnets symmetrically (the load-bearing
 # return-path step; see the manifest header + CLAUDE.md "Networking / MetalLB").
 E2E_DEFAULT_GW := helm/openshift/e2e-node-default-gw.yaml
+# Linux bridge (machine-net0) over the SNO VM's third NIC (enp3s0) + CNV bridge NAD
+# for the worker VM's machine NIC, so the worker gets a 192.168.130.0/24 address.
+E2E_MACHINE_NET := helm/openshift/e2e-machine-net.yaml
+# OVN ClusterUserDefinedNetwork for the BMC segment (192.168.2.0/24). Required by
+# vbmc-rs (Phase 5) and nico-bmc-proxy. Applied in deploy-e2e-net so it pre-exists
+# before Phase 5 applies e2e-vbmc.yaml.
+E2E_CUDN_BMC := helm/openshift/e2e-cudn-bmc.yaml
 # Blank-disk KubeVirt worker VM (Phase 4): stopped on apply (runStrategy Manual,
 # power is vbmc-rs's job from Phase 5). Carries its own WaitForFirstConsumer
 # StorageClass (CDI-on-hostpath needs it). Depends on the nico-prov-vm NAD.
@@ -118,6 +145,7 @@ export PATH := $(POST_RENDERER_DIR):$(PATH)
 CLOUD_KUSTOMIZE := $(CURDIR)/helm/kustomize/nico-rest
 INFRA_CLOUD_KUSTOMIZE := $(CURDIR)/helm/kustomize/infra-cloud
 SITE_KUSTOMIZE := $(CURDIR)/helm/kustomize/nico-core
+RMS_KUSTOMIZE := $(CURDIR)/helm/kustomize/rms
 
 # =============================================================================
 # Secrets Management
@@ -225,10 +253,10 @@ check-prereqs:
 # Container Images
 # =============================================================================
 
-# Aggregate targets: build/push every image (rest + core + nicocli).
-docker-build: docker-build-ubi docker-build-core docker-build-nicocli
+# Aggregate targets: build/push every image (rest + core + nicocli + rms).
+docker-build: docker-build-ubi docker-build-core docker-build-nicocli docker-build-unbound docker-build-rms
 
-docker-push: docker-push-ubi docker-push-core docker-push-nicocli
+docker-push: docker-push-ubi docker-push-core docker-push-nicocli docker-push-unbound docker-push-rms
 
 docker-build-ubi:
 	@cd $(UPSTREAM)/rest-api && \
@@ -250,6 +278,17 @@ docker-build-nicocli:
 docker-push-nicocli:
 	podman push $(IMAGE_REGISTRY)/nicocli:$(IMAGE_TAG)
 
+# unbound (.forge compatibility DNS resolver). UBI-only, no upstream source and
+# no RHEL entitlement needed (unbound is in the UBI appstream repo); build
+# context is docker/ubi so the baked unbound.conf is available to COPY.
+docker-build-unbound:
+	podman build --platform linux/amd64 \
+		-t $(IMAGE_REGISTRY)/nico-unbound:$(IMAGE_TAG) \
+		-f $(DOCKERFILE_DIR)/Dockerfile.unbound $(DOCKERFILE_DIR)
+
+docker-push-unbound:
+	podman push $(IMAGE_REGISTRY)/nico-unbound:$(IMAGE_TAG)
+
 # nico-core builds on UBI and needs a live RHEL subscription to
 # `dnf install rust-toolset` mid-build (see Dockerfile.nico-core) — unlike the
 # plain-Debian machine-a-tron image, there's no way around this. Provide your
@@ -268,6 +307,22 @@ docker-build-core:
 
 docker-push-core:
 	podman push $(IMAGE_REGISTRY)/nico-core:$(IMAGE_TAG)
+
+# RMS builds on UBI and needs a live RHEL subscription mid-build (aws-lc/tonic
+# toolchain via codeready-builder). Same RHSM secret handling as nico-core.
+# Build context is the vendored nv-rms submodule root (RMS_UPSTREAM).
+# Guard: fail early if the submodule is not checked out.
+docker-build-rms:
+	@test -d $(RMS_UPSTREAM) 2>/dev/null || \
+		{ echo "ERROR: $(RMS_UPSTREAM) not checked out. Run: git submodule update --init helm/vendor/nv-rms" >&2; exit 1; }
+	podman build \
+		--secret id=rhsm_org,src=$(RHSM_ORG_FILE) \
+		--secret id=rhsm_activationkey,src=$(RHSM_ACTIVATIONKEY_FILE) \
+		-t $(IMAGE_REGISTRY)/rms-api:$(IMAGE_TAG) \
+		-f $(DOCKERFILE_DIR)/Dockerfile.rms $(RMS_UPSTREAM)
+
+docker-push-rms:
+	podman push $(IMAGE_REGISTRY)/rms-api:$(IMAGE_TAG)
 
 docker-push-ubi:
 	@for img in nico-rest-api nico-rest-workflow nico-rest-site-manager nico-rest-site-agent \
@@ -333,6 +388,7 @@ helm-lint: helm-dep-build
 	helm template nico-rest $(NICO_REST_CHART) -n nico-rest -f helm/values/nico-rest.yaml > /dev/null
 	helm template nico-core $(NICO_CORE_CHART) -n nico-system -f helm/values/nico-core.yaml > /dev/null
 	helm template nico-core $(NICO_CORE_CHART) -n nico-system -f helm/values/nico-core.yaml -f $(MAT_VALUES) > /dev/null
+	helm template rack-manager $(RMS_CHART) -n nico-system -f $(RMS_VALUES) > /dev/null
 
 helm-template: helm-dep-build
 	@echo "--- prereqs ---"
@@ -357,6 +413,10 @@ helm-template: helm-dep-build
 	@echo "--- nico-rest-site-agent (upstream) ---"
 	helm template site-agent $(NICO_SITE_AGENT_CHART) -n nico-system \
 		-f helm/values/nico-rest-site-agent.yaml
+	@echo "--- rms (upstream) ---"
+	helm template rack-manager $(RMS_CHART) -n nico-system \
+		-f $(RMS_VALUES) \
+		--post-renderer $(POST_RENDERER) --post-renderer-args $(RMS_KUSTOMIZE)
 
 # =============================================================================
 # Deploy — Cloud Profile
@@ -365,18 +425,18 @@ helm-template: helm-dep-build
 deploy-prereqs:
 	helm upgrade --install -n default nvidia-infra-controller-prereqs \
 		helm/nvidia-infra-controller-prereqs/ \
-		--wait --timeout 15m
+		--wait --timeout 30m
 
 deploy-cloud-infra: helm-dep-build
 	helm upgrade --install -n nico-rest nico-rest-infra \
 		helm/infra-cloud/ \
-		--create-namespace --wait --timeout 10m \
+		--create-namespace --wait --timeout 30m \
 		--set nico-rest-common.secrets.keycloakClientSecret.value="$(KEYCLOAK_CLIENT_SECRET)" \
 		--post-renderer $(POST_RENDERER) --post-renderer-args $(INFRA_CLOUD_KUSTOMIZE)
 
 deploy-cloud:
 	helm upgrade --install -n nico-rest nico-rest \
-		$(NICO_REST_CHART) --wait --timeout 10m \
+		$(NICO_REST_CHART) --wait --timeout 30m \
 		-f helm/values/nico-rest.yaml \
 		$(CLOUD_IMAGE_OVERRIDE) \
 		--set nico-rest-api.config.keycloak.externalBaseURL=https://keycloak-rhbk-operator.$(CLUSTER_DOMAIN) \
@@ -393,7 +453,7 @@ deploy-all-cloud: deploy-prereqs helm-dep-build
 	@echo "=========================================="
 	helm upgrade --install -n nico-rest nico-rest-infra \
 		helm/infra-cloud/ \
-		--create-namespace --wait --timeout 10m \
+		--create-namespace --wait --timeout 30m \
 		--set nico-rest-common.secrets.keycloakClientSecret.value="$(KEYCLOAK_CLIENT_SECRET)" \
 		--post-renderer $(POST_RENDERER) --post-renderer-args $(INFRA_CLOUD_KUSTOMIZE)
 	@echo ""
@@ -401,7 +461,7 @@ deploy-all-cloud: deploy-prereqs helm-dep-build
 	@echo "Deploying Cloud Application"
 	@echo "=========================================="
 	helm upgrade --install -n nico-rest nico-rest \
-		$(NICO_REST_CHART) --wait --timeout 10m \
+		$(NICO_REST_CHART) --wait --timeout 30m \
 		-f helm/values/nico-rest.yaml \
 		$(CLOUD_IMAGE_OVERRIDE) \
 		--set nico-rest-api.config.keycloak.externalBaseURL=https://keycloak-rhbk-operator.$(CLUSTER_DOMAIN) \
@@ -566,9 +626,9 @@ ensure-ssh-host-key:
 deploy-site: ensure-ssh-host-key
 	oc apply -f $(NICO_DHCP_SCC)
 	$(if $(E2E),$(MAKE) deploy-e2e-net && ,)helm upgrade --install -n nico-system nico-core \
-		$(NICO_CORE_CHART) --wait --timeout 10m \
+		$(NICO_CORE_CHART) --wait --timeout 30m \
 		-f helm/values/nico-core.yaml $(SITE_CONFIG_FLAG) $(E2E_CONFIG_FLAG) \
-		$(SITE_IMAGE_OVERRIDE) \
+		$(SITE_IMAGE_OVERRIDE) $(E2E_ADMIN_ROOT_FLAG) \
 		--post-renderer $(POST_RENDERER) --post-renderer-args $(SITE_KUSTOMIZE)
 
 # E2E-only provisioning fabric. Production-faithful: the provisioning segment is a
@@ -591,6 +651,9 @@ deploy-e2e-net:
 	oc rollout status ds/nmstate-handler -n openshift-nmstate --timeout=300s
 	oc apply -f $(E2E_PROV_NET)
 	oc wait nncp/nicoprov0 --for=condition=Available --timeout=300s
+	# machine-net0 bridge (enp3s0) + nico-machine-net CNV NAD for worker VM machine NIC.
+	oc apply -f $(E2E_MACHINE_NET)
+	oc wait nncp/machine-net0 --for=condition=Available --timeout=300s
 	# Repoint the node default gateway to the FRR ToR (load-bearing return path).
 	oc apply -f $(E2E_DEFAULT_GW)
 	oc wait nncp/node-default-gw-tor --for=condition=Available --timeout=300s
@@ -599,6 +662,8 @@ deploy-e2e-net:
 	# reconverges 0.0.0.0/0 -> the ToR. Idempotent (no-op if already converged).
 	oc rollout restart ds/ovnkube-node -n openshift-ovn-kubernetes
 	oc rollout status ds/ovnkube-node -n openshift-ovn-kubernetes --timeout=300s
+	# BMC CUDN (OVN Layer2, 192.168.2.0/24) — required before Phase 5 vbmc-rs deploy.
+	oc apply -f $(E2E_CUDN_BMC)
 	# Blank-disk worker VM (stopped; nico-prov-vm NAD from E2E_PROV_NET above).
 	oc apply -f $(E2E_WORKER_VM)
 
@@ -671,7 +736,18 @@ endif
 # it is NOT a separate release. A standalone deploy-flow would collide on the
 # nico-system namespace ownership.
 
-deploy-all-site: deploy-site-infra vault-init deploy-site
+# RMS (rack-manager) — site-level gRPC rack manager, called by Core over mTLS.
+# Requires the site infra (rms DB/user on nico-site-pg, rms-firmware PVC) and the
+# vault-nico-issuer ClusterIssuer (from vault-init) for its API server cert.
+# The Crunchy secret key fix is applied via the fix-rms-secret-keys post-renderer.
+deploy-rms:
+	helm upgrade --install -n nico-system rack-manager \
+		$(RMS_CHART) --wait --timeout 30m \
+		-f $(RMS_VALUES) \
+		$(RMS_IMAGE_OVERRIDE) \
+		--post-renderer $(POST_RENDERER) --post-renderer-args $(RMS_KUSTOMIZE)
+
+deploy-all-site: deploy-site-infra vault-init deploy-site deploy-rms
 
 # =============================================================================
 # CRC (single-node) — overrides for local development on CodeReady Containers
