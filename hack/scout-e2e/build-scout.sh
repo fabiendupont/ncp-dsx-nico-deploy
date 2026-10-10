@@ -111,7 +111,10 @@ podman run --rm --privileged \
 SB="$SRC/pxe/static/blobs/internal/$BLOBDIR"
 echo "== extracting artifacts from $SB =="
 missing=0
-for f in ipxe.efi scout.efi scout.squashfs qcow-imager.efi; do
+# qcow-imager.efi is built by the RHEL 10 RHSM-gated Dockerfile.nico-pxe pipeline
+# (Stage 3: qcow-imager-builder) and baked into the nico-pxe image. The upstream
+# Ubuntu-based fork pipeline used here does not produce it.
+for f in ipxe.efi scout.efi scout.squashfs; do
   if [ -f "$SB/$f" ]; then
     cp -v "$SB/$f" "$OUT/$f"
   else

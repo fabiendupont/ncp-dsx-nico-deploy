@@ -33,6 +33,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # include/google/protobuf/*.proto and auto-resolves the well-known types, which
 # the carbide-rpc build.rs codegen needs. Same version/approach as
 # docker/ubi/Dockerfile.nico-core.
+# NOTE: x86_64 hardcoded — this builder image is only used on x86_64 dev hosts.
+# The upstream Scout arm build is not supported locally (upstream note:
+# "no support for building arm images locally"). See build-scout.sh aarch64 note.
 RUN curl -sLO https://github.com/protocolbuffers/protobuf/releases/download/v36.1/protoc-36.1-linux-x86_64.zip && \
     unzip protoc-36.1-linux-x86_64.zip -d /usr/local && \
     rm protoc-36.1-linux-x86_64.zip && \

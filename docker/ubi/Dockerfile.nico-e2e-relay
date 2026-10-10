@@ -12,8 +12,10 @@
 #
 # Mirrors upstream NICo's dev relay (dev/relay.yml): dnsmasq with `port=0`
 # (DHCP relay only, no DNS), an interface, and `dhcp-relay=<giaddr>,<server>`.
+# hadolint ignore=DL3007
 FROM registry.access.redhat.com/ubi10/ubi-minimal:latest
 
+# hadolint ignore=DL3041
 RUN microdnf install -y dnsmasq iproute iputils && \
     microdnf clean all
 
