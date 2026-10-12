@@ -73,7 +73,9 @@ jobs:
       # as root against the runner-owned bind mount, so git refuses them
       # with "detected dubious ownership" unless this is trusted explicitly.
       - name: Trust the workspace in this container
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/*"
 
       - name: Install oc
         uses: redhat-actions/openshift-tools-installer@v1
