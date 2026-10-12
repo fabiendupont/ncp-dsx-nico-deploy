@@ -92,7 +92,7 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@v4
         with:
-          version: latest
+          version: 4.3.0
 
       # Helm 4 dropped "any executable found via $PATH" post-renderer
       # resolution — --post-renderer now only matches a formally registered
