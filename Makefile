@@ -141,16 +141,24 @@ check-prereqs:
 	if command -v helm >/dev/null 2>&1; then \
 		if helm plugin list 2>/dev/null | grep -q '^kustomize-post-renderer[[:space:]]'; then \
 			echo "  [OK]      helm plugin: kustomize-post-renderer (installed)"; \
-		elif helm plugin install "$(POST_RENDERER_DIR)" >/dev/null 2>&1; then \
-			echo "  [OK]      helm plugin: kustomize-post-renderer (installed just now)"; \
 		else \
-			echo "  [MISSING] helm plugin: kustomize-post-renderer"; \
-			echo "            install with: helm plugin install $(POST_RENDERER_DIR)"; \
-			echo "            NOTE: this requires Helm 4.x — the plugin.yaml uses the"; \
-			echo "            postrenderer/v1 protocol (apiVersion/type/runtime), which"; \
-			echo "            a Helm 3.x binary cannot even parse. Installing it with"; \
-			echo "            Helm 3 breaks every helm command, not just this one."; \
-			MISSING=1; \
+			HELM_MAJOR=$$(helm version --short 2>/dev/null | sed -n 's/^v\([0-9][0-9]*\)\..*/\1/p'); \
+			if [ "$$HELM_MAJOR" != "4" ]; then \
+				echo "  [MISSING] helm plugin: kustomize-post-renderer"; \
+				echo "            not installing automatically: this Helm binary reports"; \
+				echo "            version $${HELM_MAJOR:-unknown}.x, not 4.x. The plugin's"; \
+				echo "            plugin.yaml uses the postrenderer/v1 protocol, which only"; \
+				echo "            Helm 4 can parse — installing it on a Helm 3.x workstation"; \
+				echo "            breaks every helm command, not just this one (see README.md)."; \
+				echo "            Upgrade to Helm 4.x, then re-run: make check-prereqs"; \
+				MISSING=1; \
+			elif helm plugin install "$(POST_RENDERER_DIR)" >/dev/null 2>&1; then \
+				echo "  [OK]      helm plugin: kustomize-post-renderer (installed just now)"; \
+			else \
+				echo "  [MISSING] helm plugin: kustomize-post-renderer"; \
+				echo "            install with: helm plugin install $(POST_RENDERER_DIR)"; \
+				MISSING=1; \
+			fi; \
 		fi; \
 	fi; \
 	if oc whoami >/dev/null 2>&1; then \
