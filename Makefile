@@ -93,7 +93,11 @@ VAULT_OVERRIDES = $(if $(filter standalone,$(VAULT_MODE)),$(CRC_VAULT_OVERRIDES)
 # Cluster ingress domain (auto-detected from OpenShift)
 CLUSTER_DOMAIN ?= $(shell oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}' 2>/dev/null)
 
-# Kustomize post-renderer for upstream chart patches
+# Kustomize post-renderer for upstream chart patches. Resolved as a Helm
+# plugin (type postrenderer/v1, installed by `make check-prereqs` /
+# helm plugin install $(POST_RENDERER_DIR)) — requires Helm 4.x, which no
+# longer resolves bare --post-renderer names via $PATH. The PATH export
+# below is a harmless no-op left for anyone invoking render.sh directly.
 POST_RENDERER_DIR := $(CURDIR)/helm/plugins/kustomize-post-renderer
 POST_RENDERER := kustomize-post-renderer
 export PATH := $(POST_RENDERER_DIR):$(PATH)
@@ -133,6 +137,21 @@ check-prereqs:
 		echo "  [MISSING] python3 module: yaml (pyyaml)"; \
 		echo "            install with: pip3 install --user --break-system-packages pyyaml"; \
 		MISSING=1; \
+	fi; \
+	if command -v helm >/dev/null 2>&1; then \
+		if helm plugin list 2>/dev/null | grep -q '^kustomize-post-renderer[[:space:]]'; then \
+			echo "  [OK]      helm plugin: kustomize-post-renderer (installed)"; \
+		elif helm plugin install "$(POST_RENDERER_DIR)" >/dev/null 2>&1; then \
+			echo "  [OK]      helm plugin: kustomize-post-renderer (installed just now)"; \
+		else \
+			echo "  [MISSING] helm plugin: kustomize-post-renderer"; \
+			echo "            install with: helm plugin install $(POST_RENDERER_DIR)"; \
+			echo "            NOTE: this requires Helm 4.x — the plugin.yaml uses the"; \
+			echo "            postrenderer/v1 protocol (apiVersion/type/runtime), which"; \
+			echo "            a Helm 3.x binary cannot even parse. Installing it with"; \
+			echo "            Helm 3 breaks every helm command, not just this one."; \
+			MISSING=1; \
+		fi; \
 	fi; \
 	if oc whoami >/dev/null 2>&1; then \
 		echo "  [OK]      oc is logged in to $$(oc whoami --show-server 2>/dev/null)"; \

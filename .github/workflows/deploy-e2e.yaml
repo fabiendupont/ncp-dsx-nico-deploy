@@ -91,6 +91,18 @@ jobs:
 
       - name: Install Helm
         uses: azure/setup-helm@v4
+        with:
+          version: latest
+
+      # Helm 4 dropped "any executable found via $PATH" post-renderer
+      # resolution — --post-renderer now only matches a formally registered
+      # Helm plugin of type postrenderer/v1 (see Makefile's
+      # POST_RENDERER/PATH setup, which alone is no longer sufficient).
+      # `helm plugin install <local-dir>` symlinks the plugin into Helm's
+      # plugin directory ("development mode"), so it stays in sync with the
+      # checked-out repo without a separate update step.
+      - name: Install kustomize-post-renderer Helm plugin
+        run: helm plugin install helm/plugins/kustomize-post-renderer
 
       - name: Log in to OpenShift
         id: login
