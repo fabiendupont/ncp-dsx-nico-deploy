@@ -23,6 +23,7 @@ COPY db/ ./db/
 COPY workflow/ ./workflow/
 COPY site-workflow/ ./site-workflow/
 COPY ipam/ ./ipam/
+COPY common/ ./common/
 COPY site-manager/ ./site-manager/
 COPY cert-manager/ ./cert-manager/
 COPY openapi/ ./openapi/
