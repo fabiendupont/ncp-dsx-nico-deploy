@@ -61,7 +61,6 @@ spec:
         caProvider:
           type: ConfigMap
           name: kube-root-ca.crt
-          namespace: {{ .Release.Namespace }}
           key: ca.crt
       auth:
         serviceAccount:
