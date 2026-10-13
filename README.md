@@ -19,8 +19,8 @@ External Secrets Operator, and OpenShift Routes.
 ## Prerequisites
 
 - OpenShift 4.21+
-- `oc`, `helm`, `kustomize`, `podman`, `python3`, `git`, `curl`, `jq` and
-  `ssh-keygen` tools.
+- `oc`, `helm` (4.x — see note below), `kustomize`, `podman`, `python3`,
+  `git`, `curl`, `jq` and `ssh-keygen` tools.
 - Git submodule initialized (`git submodule update --init`)
 - A **default StorageClass** with dynamic RWO provisioning. The PostgreSQL,
   Vault, NATS, and Temporal PVCs use `storageClass: null` (the cluster
@@ -36,6 +36,14 @@ StorageClass) require an active cluster session (`oc login` or
 ```bash
 make check-prereqs
 ```
+
+Requires Helm 4.x: the Kustomize post-renderer
+(`helm/plugins/kustomize-post-renderer/`) is registered as a Helm plugin
+(`helm plugin install`, done automatically by `make check-prereqs`), and its
+`plugin.yaml` uses the `postrenderer/v1` protocol that only Helm 4 can parse.
+A Helm 3.x binary fails to load *any* command once that plugin is installed
+(`unknown field "apiVersion"`) — don't mix Helm 3 and this repo on the same
+machine.
 
 ### Optional: bootstrap the cluster
 
