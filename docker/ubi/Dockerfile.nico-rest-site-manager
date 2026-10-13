@@ -12,6 +12,7 @@ WORKDIR /workspace
 COPY go.mod go.sum ./
 COPY sdk/standard/go.mod ./sdk/standard/
 COPY proto/ ./proto/
+COPY common/ ./common/
 RUN --mount=type=cache,target=/root/go/pkg/mod   \
     go mod download
 
