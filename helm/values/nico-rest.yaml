@@ -8,7 +8,7 @@
 
 global:
   image:
-    repository: quay.io/rh-ee-skapon
+    repository: ghcr.io/rh-ecosystem-edge
     tag: latest
     pullPolicy: IfNotPresent
   certificate:

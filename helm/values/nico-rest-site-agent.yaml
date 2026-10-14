@@ -13,7 +13,7 @@
 
 global:
   image:
-    repository: quay.io/rh-ee-skapon
+    repository: ghcr.io/rh-ecosystem-edge
     tag: latest
     pullPolicy: IfNotPresent
   # The Core gRPC client cert is issued by vault-nico-issuer (Vault PKI, the
