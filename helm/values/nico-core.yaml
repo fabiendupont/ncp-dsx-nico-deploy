@@ -13,8 +13,8 @@ global:
     # binaries. Pinned to an immutable tag, not `latest`: this quay.io namespace
     # already had a stale `latest` cached on cluster nodes from an unrelated
     # build, and IfNotPresent kept serving it after a new push under the same tag.
-    repository: quay.io/rh-ee-skapon/nico-core
-    tag: dhcp-hooks-20260826b
+    repository: ghcr.io/rh-ecosystem-edge
+    tag: latest
     pullPolicy: IfNotPresent
   spiffe:
     trustDomain: nico.local
@@ -252,7 +252,7 @@ nico-flow:
   flowEnv: production
   images:
     flow:
-      repository: quay.io/fdupont-redhat/nico-flow
+      repository: ghcr.io/rh-ecosystem-edge/nico-flow
       tag: latest
   database:
     host: nico-site-pg-primary

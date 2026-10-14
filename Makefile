@@ -21,7 +21,7 @@ NICO_SITE_AGENT_CHART := $(UPSTREAM)/helm/rest/nico-rest-site-agent
 NICO_TEMPORAL_CHART := $(UPSTREAM)/rest-api/temporal-helm/temporal
 
 # Image configuration
-IMAGE_REGISTRY ?= quay.io/fdupont-redhat
+IMAGE_REGISTRY ?= ghcr.io/rh-ecosystem-edge
 IMAGE_TAG ?= latest
 DOCKERFILE_DIR := docker/ubi
 
@@ -414,6 +414,8 @@ deploy-cloud:
 		-f helm/values/nico-rest.yaml \
 		--set nico-rest-api.config.keycloak.externalBaseURL=https://keycloak-rhbk-operator.$(CLUSTER_DOMAIN) \
 		--set nico-rest-common.secrets.keycloakClientSecret.value="$(KEYCLOAK_CLIENT_SECRET)" \
+		--set global.image.repository="$(IMAGE_REGISTRY)" \
+		--set global.image.tag="$(IMAGE_TAG)" \
 		--post-renderer $(POST_RENDERER) --post-renderer-args $(CLOUD_KUSTOMIZE)
 
 # All-in-one cloud deployment - runs prereqs, infra, and app in sequence
@@ -622,6 +624,8 @@ deploy-site: ensure-ssh-host-key patch-vendor
 	helm upgrade --install -n nico-system nico-core \
 		$(NICO_CORE_CHART) --wait --timeout 10m \
 		-f helm/values/nico-core.yaml $(SITE_CONFIG_FLAG) \
+		--set global.image.repository="$(IMAGE_REGISTRY)/nico-core" \
+		--set global.image.tag="$(IMAGE_TAG)" \
 		--set 'nico-api.certificate.extraDnsNames[0]=carbide-api.forge' \
 		--set 'nico-api.certificate.extraDnsNames[1]=nico-api-grpc-nico-system.$(CLUSTER_DOMAIN)' \
 		$(DATAPLANE_VIP_SET) \
@@ -690,6 +694,8 @@ endif
 	helm upgrade --install -n nico-system nico-rest-site-agent \
 		$(NICO_SITE_AGENT_CHART) --wait --timeout 5m \
 		-f helm/values/nico-rest-site-agent.yaml \
+		--set global.image.repository="$(IMAGE_REGISTRY)" \
+		--set global.image.tag="$(IMAGE_TAG)" \
 		--set envConfig.CLUSTER_ID=$$SITE_ID_VAL \
 		--set envConfig.TEMPORAL_SUBSCRIBE_NAMESPACE=$$SITE_ID_VAL \
 		--set bootstrap.enabled=true
