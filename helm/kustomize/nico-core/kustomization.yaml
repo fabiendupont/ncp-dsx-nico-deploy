@@ -5,31 +5,10 @@ kind: Kustomization
 
 resources:
   - all.yaml
-  # Bare-metal emulation for testing (see machine-a-tron-testing-guide.md).
-  # Disabled for this real (non-MAT) deploy — image isn't built and it wastes
-  # a scheduling slot on the single node. Re-enable for machine-a-tron testing.
-  # - machine-a-tron.yaml
 
-patches:
-  # Fix wrong CLI flag guessed by the chart's binary-detection script:
-  # upstream chart renders --nico-url but the binary expects --api-uri.
-  # Pending fix in NVIDIA/infra-controller (not yet in fix/openshift-compat).
-  - path: patches/fix-dns-flag-name.yaml
-    target:
-      kind: StatefulSet
-      name: nico-dns
+# NOTE: add-api-oob-network.yaml is e2e-only — applied via Makefile.e2e, not here.
 
-  # NOTE: the nico-bmc OVN CUDN attachment (patches/add-api-oob-network.yaml)
-  # is e2e-only (the CUDN and vbmc-rs only exist in the libvirt e2e environment).
-  # It is applied via `make deploy-e2e-net` in Makefile.e2e, not here.
-
-  # Patches removed — now covered by fix/openshift-compatibility fork (PR #4372):
-  #   fix-core-secret-keys.yaml       → nico-api.database.usernameKey: user
-  #   fix-core-deployment-keys.yaml   → nico-api.database.usernameKey: user
-  #   fix-core-migration.yaml         → nico-api.migration.pgIsReadyInit.enabled: true
-  #   fix-core-optional-volumes.yaml  → nico-api.siteConfig guard in chart template
-  #   fix-bmc-proxy-secret-keys.yaml  → nico-bmc-proxy.database.usernameKey: user
-  #   fix-flow-secret-keys.yaml       → nico-flow.database.usernameKey: user
-  #   remove-flow-namespace.yaml      → nico-flow.createNamespace: false
-  #   fix-dns-service-port.yaml       → nico-dns.service.targetPort: 5353
-  #   fix-unbound-port.yaml           → nico-unbound.containerPort: 5353
+# All kustomize patches have been replaced by Helm values (helm/values/nico-core.yaml)
+# via the fix/openshift-compatibility fork (fabiendupont/nvidia-infra-controller PR #4372).
+# fix-dns-flag-name was also removed: our image ships carbide-dns at /opt/carbide/carbide-dns
+# which the chart invokes with --carbide-url (still functional, deprecated alias for --api-uri).
